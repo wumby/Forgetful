@@ -1,1 +1,1 @@
-# Forgetful
+Forgetful is pretty cool photo expiring app
