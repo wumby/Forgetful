@@ -133,8 +133,7 @@ struct FolderDetailView: View {
                     MemoryCardGrid(
                         items: items,
                         assetStore: appManager.assetStore,
-                        expirationService: expirationService,
-                        folderNameProvider: { _ in folder?.name }
+                        expirationService: expirationService
                     )
                 }
             }
@@ -145,7 +144,7 @@ struct FolderDetailView: View {
     }
 }
 
-private struct FolderEditorSheet: View {
+struct FolderEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let title: String
