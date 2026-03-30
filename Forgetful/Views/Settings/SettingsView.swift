@@ -15,7 +15,7 @@ struct SettingsView: View {
         Form {
             Section("Defaults") {
                 Picker("Default Expiration", selection: $selectedPreset) {
-                    ForEach(ExpirationPreset.allCases) { preset in
+                    ForEach(ExpirationPreset.selectableCases) { preset in
                         Text(preset.title).tag(preset)
                     }
                 }
@@ -57,7 +57,12 @@ struct SettingsView: View {
         }
         .navigationTitle("Settings")
         .onAppear {
-            selectedPreset = ExpirationPreset(rawValue: preferences.defaultExpirationPreset) ?? .sevenDays
+            let storedPreset = ExpirationPreset(rawValue: preferences.defaultExpirationPreset) ?? .sevenDays
+            selectedPreset = storedPreset == .never ? .sevenDays : storedPreset
+            if preferences.defaultExpirationPreset == ExpirationPreset.never.rawValue {
+                preferences.defaultExpirationPreset = ExpirationPreset.sevenDays.rawValue
+                try? modelContext.save()
+            }
             notificationsEnabled = preferences.notificationsEnabled
             autoDeleteExpired = preferences.autoDeleteExpired
         }

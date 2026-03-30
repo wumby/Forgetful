@@ -10,6 +10,10 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
+    static var selectableCases: [ExpirationPreset] {
+        [.oneDay, .threeDays, .sevenDays, .thirtyDays]
+    }
+
     var title: String {
         switch self {
         case .oneDay: "1 day"

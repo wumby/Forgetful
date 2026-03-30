@@ -13,6 +13,7 @@ struct MemoryDetailView: View {
     @State private var isExporting = false
     @State private var isShowingFolderPicker = false
     @State private var isShowingDeleteConfirmation = false
+    @State private var isShowingImageViewer = false
 
     private let expirationService = ExpirationService()
     private let photosExportService = PhotosExportService()
@@ -22,35 +23,60 @@ struct MemoryDetailView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                MemoryHeroImage(image: appManager.assetStore.loadOriginal(filename: item.imageFilename))
+                MemoryHeroImage(
+                    image: appManager.assetStore.loadOriginal(filename: item.imageFilename),
+                    onTap: {
+                        isShowingImageViewer = true
+                    }
+                )
 
                 MemoryMetaCard(
                     item: item,
-                    countdownText: expirationService.countdownText(for: item),
+                    expirationDetailText: expirationDetailText,
                     folderName: folderName,
                     createdDateText: createdDateText
-                )
-
-                ExpirationInfoSection(
-                    countdownText: expirationService.countdownText(for: item),
-                    detailText: expirationDetailText,
-                    isPermanent: item.keepForever || item.expiresAt == .distantFuture
-                )
-
-                DetailActionSection(
-                    isExporting: isExporting,
-                    isAlreadySaved: item.wasExportedToPhotos,
-                    folderName: folderName,
-                    onSaveToPhotos: { exportToPhotos(memoryService: memoryService) },
-                    onMoveToFolder: { isShowingFolderPicker = true },
-                    onDelete: { isShowingDeleteConfirmation = true }
                 )
             }
             .padding(20)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("Memory")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        exportToPhotos(memoryService: memoryService)
+                    } label: {
+                        Label(isExporting ? "Saving to Photos..." : (item.wasExportedToPhotos ? "Save to Photos Again" : "Save to Photos"), systemImage: item.wasExportedToPhotos ? "checkmark.circle.fill" : "square.and.arrow.down")
+                    }
+                    .disabled(isExporting)
+
+                    Button {
+                        isShowingFolderPicker = true
+                    } label: {
+                        Label("Move to Folder", systemImage: "folder")
+                    }
+
+                    Divider()
+
+                    Button {
+                        isShowingDeleteConfirmation = true
+                    } label: {
+                        HStack {
+                            Text("Delete Memory")
+                            Spacer()
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .accessibilityLabel("Memory actions")
+            }
+        }
         .alert("Save to Photos", isPresented: Binding(
             get: { exportMessage != nil },
             set: { if !$0 { exportMessage = nil } }
@@ -82,6 +108,11 @@ struct MemoryDetailView: View {
                 )
             }
         }
+        .fullScreenCover(isPresented: $isShowingImageViewer) {
+            if let image = appManager.assetStore.loadOriginal(filename: item.imageFilename) {
+                FullScreenMemoryImageViewer(image: image)
+            }
+        }
     }
 
     private var folderName: String {
@@ -97,19 +128,19 @@ struct MemoryDetailView: View {
 
     private var expirationDetailText: String {
         if item.keepForever || item.expiresAt == .distantFuture {
-            return "This memory will stay in Forgetful until you delete it."
+            return "No expiration"
         }
 
         let calendar = Calendar.current
         if calendar.isDateInToday(item.expiresAt) {
-            return "Expires today at \(item.expiresAt.formatted(date: .omitted, time: .shortened))."
+            return "Today at \(item.expiresAt.formatted(date: .omitted, time: .shortened))"
         }
 
         if calendar.isDateInTomorrow(item.expiresAt) {
-            return "Expires tomorrow at \(item.expiresAt.formatted(date: .omitted, time: .shortened))."
+            return "Tomorrow at \(item.expiresAt.formatted(date: .omitted, time: .shortened))"
         }
 
-        return "Expires on \(item.expiresAt.formatted(date: .abbreviated, time: .shortened))."
+        return item.expiresAt.formatted(date: .abbreviated, time: .shortened)
     }
 
     private func exportToPhotos(memoryService: MemoryService) {
@@ -137,6 +168,7 @@ struct MemoryDetailView: View {
 
 private struct MemoryHeroImage: View {
     let image: UIImage?
+    let onTap: () -> Void
 
     var body: some View {
         Group {
@@ -144,6 +176,7 @@ private struct MemoryHeroImage: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+                    .onTapGesture(perform: onTap)
             } else {
                 RoundedRectangle(cornerRadius: 28)
                     .fill(.secondary.opacity(0.12))
@@ -160,46 +193,185 @@ private struct MemoryHeroImage: View {
             RoundedRectangle(cornerRadius: 28)
                 .strokeBorder(.white.opacity(0.18), lineWidth: 1)
         )
+        .contentShape(RoundedRectangle(cornerRadius: 28))
+    }
+}
+
+private struct FullScreenMemoryImageViewer: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let image: UIImage
+
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var dismissOffsetY: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = proxy.size
+
+            ZStack(alignment: .topTrailing) {
+                Color.black
+                    .ignoresSafeArea()
+
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(x: clampedOffset(in: size).width, y: clampedOffset(in: size).height + dismissOffsetY)
+                    .frame(width: size.width, height: size.height)
+                    .gesture(doubleTapGesture)
+                    .simultaneousGesture(magnifyGesture(in: size))
+                    .simultaneousGesture(dragGesture(in: size))
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: scale)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: offset)
+                    .animation(.spring(response: 0.28, dampingFraction: 0.82), value: dismissOffsetY)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(.black.opacity(0.45), in: Circle())
+                }
+                .padding(.top, 18)
+                .padding(.trailing, 18)
+            }
+        }
+        .statusBarHidden()
+    }
+
+    private var doubleTapGesture: some Gesture {
+        TapGesture(count: 2).onEnded {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                if scale > 1.05 {
+                    resetZoom()
+                } else {
+                    scale = 2.5
+                }
+            }
+        }
+    }
+
+    private func magnifyGesture(in size: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let nextScale = min(max(lastScale * value.magnification, 1), 4)
+                scale = nextScale
+                if scale <= 1.01 {
+                    offset = .zero
+                } else {
+                    offset = clamped(offset: offset, in: size, scale: scale)
+                }
+            }
+            .onEnded { _ in
+                lastScale = scale
+                if scale <= 1.01 {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        resetZoom()
+                    }
+                } else {
+                    let clamped = clamped(offset: offset, in: size, scale: scale)
+                    offset = clamped
+                    lastOffset = clamped
+                }
+            }
+    }
+
+    private func dragGesture(in size: CGSize) -> some Gesture {
+        DragGesture()
+            .onChanged { value in
+                if scale > 1.01 {
+                    let nextOffset = CGSize(
+                        width: lastOffset.width + value.translation.width,
+                        height: lastOffset.height + value.translation.height
+                    )
+                    offset = clamped(offset: nextOffset, in: size, scale: scale)
+                } else {
+                    dismissOffsetY = max(value.translation.height, 0)
+                }
+            }
+            .onEnded { value in
+                if scale > 1.01 {
+                    let nextOffset = clamped(offset: offset, in: size, scale: scale)
+                    offset = nextOffset
+                    lastOffset = nextOffset
+                } else if dismissOffsetY > 120 || value.predictedEndTranslation.height > 180 {
+                    dismiss()
+                } else {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                        dismissOffsetY = 0
+                    }
+                }
+            }
+    }
+
+    private func clampedOffset(in size: CGSize) -> CGSize {
+        clamped(offset: offset, in: size, scale: scale)
+    }
+
+    private func clamped(offset: CGSize, in size: CGSize, scale: CGFloat) -> CGSize {
+        guard scale > 1 else { return .zero }
+
+        let horizontalLimit = (size.width * (scale - 1)) / 2
+        let verticalLimit = (size.height * (scale - 1)) / 2
+
+        return CGSize(
+            width: min(max(offset.width, -horizontalLimit), horizontalLimit),
+            height: min(max(offset.height, -verticalLimit), verticalLimit)
+        )
+    }
+
+    private func resetZoom() {
+        scale = 1
+        lastScale = 1
+        offset = .zero
+        lastOffset = .zero
+        dismissOffsetY = 0
     }
 }
 
 private struct MemoryMetaCard: View {
     let item: MemoryItem
-    let countdownText: String
+    let expirationDetailText: String
     let folderName: String
     let createdDateText: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 10) {
-                CountdownBadge(text: countdownText)
-
-                if item.wasExportedToPhotos {
-                    Label("Saved to Photos", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if let note = item.note, !note.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Note")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(note)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                }
-            } else {
-                Text("No note added")
-                    .font(.subheadline)
+            if item.wasExportedToPhotos {
+                Label("Saved to Photos", systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
 
-            VStack(spacing: 12) {
+            metadataSection(title: "Time") {
+                metadataRow(
+                    title: "Date Taken",
+                    value: createdDateText,
+                    symbol: "calendar",
+                    valueFont: .subheadline.weight(.semibold)
+                )
+                metadataRow(
+                    title: "Expires",
+                    value: expirationDetailText,
+                    symbol: "hourglass",
+                    valueFont: .subheadline.weight(.semibold)
+                )
+            }
+
+            Divider()
+                .overlay(.quaternary.opacity(0.7))
+
+            metadataSection(title: "Context") {
+                if let noteText {
+                    metadataRow(title: "Note", value: noteText, symbol: "note.text")
+                }
                 metadataRow(title: "Folder", value: folderName, symbol: "folder")
-                metadataRow(title: "Captured", value: createdDateText, symbol: "calendar")
             }
         }
         .padding(18)
@@ -211,7 +383,19 @@ private struct MemoryMetaCard: View {
         )
     }
 
-    private func metadataRow(title: String, value: String, symbol: String) -> some View {
+    private func metadataSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 12) {
+                content()
+            }
+        }
+    }
+
+    private func metadataRow(title: String, value: String, symbol: String, valueFont: Font = .subheadline.weight(.medium)) -> some View {
         HStack(spacing: 12) {
             Image(systemName: symbol)
                 .font(.subheadline.weight(.semibold))
@@ -224,137 +408,19 @@ private struct MemoryMetaCard: View {
                     .foregroundStyle(.secondary)
 
                 Text(value)
-                    .font(.subheadline.weight(.medium))
+                    .font(valueFont)
                     .foregroundStyle(.primary)
             }
 
             Spacer()
         }
     }
-}
 
-private struct ExpirationInfoSection: View {
-    let countdownText: String
-    let detailText: String
-    let isPermanent: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Expires")
-                .font(.headline)
-
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: isPermanent ? "infinity.circle" : "clock")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 24, height: 24)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(isPermanent ? "No expiration" : countdownText.capitalized)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-
-                    Text(detailText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
+    private var noteText: String? {
+        guard let note = item.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
+            return nil
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(.quaternary.opacity(0.8), lineWidth: 1)
-        )
-    }
-}
-
-private struct DetailActionSection: View {
-    let isExporting: Bool
-    let isAlreadySaved: Bool
-    let folderName: String
-    let onSaveToPhotos: () -> Void
-    let onMoveToFolder: () -> Void
-    let onDelete: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Actions")
-                .font(.headline)
-
-            VStack(spacing: 10) {
-                actionRow(
-                    title: isExporting ? "Saving to Photos..." : "Save to Photos",
-                    subtitle: isAlreadySaved ? "This memory was already exported. Saving again will create another copy." : "Copy the original image to your system photo library.",
-                    symbol: isAlreadySaved ? "checkmark.circle.fill" : "square.and.arrow.down",
-                    tint: .primary,
-                    action: onSaveToPhotos
-                )
-                .disabled(isExporting)
-
-                actionRow(
-                    title: "Move to Folder",
-                    subtitle: "Currently \(folderName)",
-                    symbol: "folder",
-                    tint: .secondary,
-                    action: onMoveToFolder
-                )
-
-                actionRow(
-                    title: "Delete Memory",
-                    subtitle: "Remove it from Forgetful.",
-                    symbol: "trash",
-                    tint: .red,
-                    isDestructive: true,
-                    action: onDelete
-                )
-            }
-        }
-    }
-
-    private func actionRow(
-        title: String,
-        subtitle: String,
-        symbol: String,
-        tint: Color,
-        isDestructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: symbol)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(isDestructive ? .red : tint)
-                    .frame(width: 38, height: 38)
-                    .background((isDestructive ? Color.red : tint).opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(isDestructive ? .red : .primary)
-
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20)
-                    .strokeBorder((isDestructive ? Color.red.opacity(0.35) : Color.secondary.opacity(0.16)), lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
+        return note
     }
 }
 
@@ -367,12 +433,25 @@ private struct FolderPickerSheet: View {
 
     var body: some View {
         List {
-            folderButton(title: "Unsorted", subtitle: "Keep this memory outside a folder", folderID: nil)
+            folderButton(
+                title: "Unsorted",
+                subtitle: "Keep this memory outside a folder",
+                symbol: "tray",
+                tint: .secondary,
+                folderID: nil
+            )
 
             ForEach(folders, id: \.id) { folder in
-                folderButton(title: folder.name, subtitle: "Move into \(folder.name)", folderID: folder.id)
+                folderButton(
+                    title: folder.name,
+                    subtitle: "Move into \(folder.name)",
+                    symbol: folder.iconName ?? "folder",
+                    tint: Color(folderColorName: folder.colorName),
+                    folderID: folder.id
+                )
             }
         }
+        .listStyle(.plain)
         .navigationTitle("Move to Folder")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -384,23 +463,24 @@ private struct FolderPickerSheet: View {
         }
     }
 
-    private func folderButton(title: String, subtitle: String, folderID: UUID?) -> some View {
+    private func folderButton(title: String, subtitle: String, symbol: String, tint: Color, folderID: UUID?) -> some View {
         Button {
             onSelect(folderID)
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: folderID == nil ? "tray" : "folder")
+                Image(systemName: symbol)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 20)
+                    .foregroundStyle(tint)
+                    .frame(width: 34, height: 34)
+                    .background(tint.opacity(folderID == nil ? 0.1 : 0.12), in: RoundedRectangle(cornerRadius: 12))
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(title)
-                        .font(.subheadline.weight(.medium))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
 
                     Text(subtitle)
-                        .font(.footnote)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -411,6 +491,7 @@ private struct FolderPickerSheet: View {
                         .foregroundStyle(.blue)
                 }
             }
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

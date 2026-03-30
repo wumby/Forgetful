@@ -7,16 +7,30 @@ enum AppTab: Hashable {
     case settings
 }
 
-private enum LibraryFilter: Hashable {
-    case all
-    case expiringSoon
-    case unsorted
+private enum LibraryMode: String, CaseIterable, Identifiable {
+    case photos
+    case folders
+
+    var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .all: "All"
-        case .expiringSoon: "Expiring Soon"
-        case .unsorted: "Unsorted"
+        case .photos: "Photos"
+        case .folders: "Folders"
+        }
+    }
+}
+
+private enum LibrarySort: Hashable {
+    case newestFirst
+    case oldestFirst
+    case expiringSoonest
+
+    var title: String {
+        switch self {
+        case .newestFirst: "Newest First"
+        case .oldestFirst: "Oldest First"
+        case .expiringSoonest: "Expiring Soonest"
         }
     }
 }
@@ -133,9 +147,104 @@ struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var appManager: AppManager
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
-    @State private var searchText = ""
-    @State private var selectedFilter: LibraryFilter = .all
-    @State private var selectedFolderID: UUID?
+    @State private var selectedMode: LibraryMode = .photos
+    @State private var selectedSort: LibrarySort = .newestFirst
+
+    private let expirationService = ExpirationService()
+
+    private var allItems: [MemoryItem] {
+        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService).fetchActiveItems()
+    }
+
+    private var expiringSoonItems: [MemoryItem] {
+        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService).fetchExpiringSoonItems()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Library")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+
+                Text(statusText)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+
+            HStack(spacing: 12) {
+                Picker("Browse", selection: $selectedMode) {
+                    ForEach(LibraryMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Menu {
+                    Section("Sort") {
+                        sortButton(.newestFirst)
+                        sortButton(.oldestFirst)
+                        sortButton(.expiringSoonest)
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down.circle")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .background(Color.secondary.opacity(0.08), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .opacity(selectedMode == .photos ? 1 : 0)
+                .allowsHitTesting(selectedMode == .photos)
+                .accessibilityHidden(selectedMode != .photos)
+            }
+            .padding(.horizontal, 20)
+
+            Group {
+                switch selectedMode {
+                case .photos:
+                    LibraryPhotosView(selectedSort: $selectedSort)
+                        .environmentObject(appManager)
+                case .folders:
+                    LibraryFoldersView()
+                }
+            }
+        }
+        .background(Color(.systemGroupedBackground))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var statusText: String {
+        switch selectedMode {
+        case .photos:
+            if expiringSoonItems.count > 0 {
+                return "\(allItems.count) active memories, \(expiringSoonItems.count) expiring soon"
+            }
+            return "\(allItems.count) active memories"
+        case .folders:
+            return folders.count == 1 ? "1 folder" : "\(folders.count) folders"
+        }
+    }
+
+    private func sortButton(_ sort: LibrarySort) -> some View {
+        Button {
+            selectedSort = sort
+        } label: {
+            if selectedSort == sort {
+                Label(sort.title, systemImage: "checkmark")
+            } else {
+                Text(sort.title)
+            }
+        }
+    }
+}
+
+private struct LibraryPhotosView: View {
+    @Binding var selectedSort: LibrarySort
+
+    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var appManager: AppManager
+    @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
 
     private let expirationService = ExpirationService()
 
@@ -143,122 +252,27 @@ struct LibraryView: View {
         MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
     }
 
-    private var expiringSoonItems: [MemoryItem] {
-        memoryService.fetchExpiringSoonItems()
-    }
-
-    private var folderLookup: [UUID: FolderEntity] {
-        Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
-    }
-
-    private var folderCounts: [UUID: Int] {
-        Dictionary(uniqueKeysWithValues: folders.map { folder in
-            (folder.id, FolderService(context: modelContext).activeItemCount(in: folder, expirationService: expirationService))
-        })
-    }
-
     private var allItems: [MemoryItem] {
         memoryService.fetchActiveItems()
     }
 
-    private var filteredItems: [MemoryItem] {
-        let filteredByScope = allItems.filter(matchesContext)
-        guard !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return filteredByScope
-        }
+    private var expiringSoonItems: [MemoryItem] {
+        memoryService.fetchExpiringSoonItems()
+    }
 
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
-        return filteredByScope.filter { item in
-            let noteMatches = item.note?.localizedLowercase.contains(query) == true
-            let folderMatches = folderName(for: item)?.localizedLowercase.contains(query) == true
-            return noteMatches || folderMatches
-        }
+    private var displayedItems: [MemoryItem] {
+        sort(allItems)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Library")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-
-                    Text(statusText)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 8)
-
-                if expiringSoonItems.count > 0, selectedFilter != .expiringSoon, selectedFolderID == nil {
-                    Button {
-                        selectedFilter = .expiringSoon
-                    } label: {
-                        HStack {
-                            Image(systemName: "clock.badge.exclamationmark")
-                            Text("\(expiringSoonItems.count) memories expiring soon")
-                                .font(.subheadline.weight(.medium))
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.bold))
-                        }
-                        .padding(14)
-                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if !folders.isEmpty {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text("Folders")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        NavigationLink {
-                            FolderListView()
-                        } label: {
-                            Text("See All")
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(folders, id: \.id) { folder in
-                                Button {
-                                    selectedFolderID = folder.id
-                                } label: {
-                                    FolderBrowseCard(
-                                        folder: folder,
-                                        count: folderCounts[folder.id] ?? 0,
-                                        isSelected: selectedFolderID == folder.id
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 10) {
-                        filterChip(title: "All", filter: .all)
-                        filterChip(title: "Expiring Soon", filter: .expiringSoon)
-                        filterChip(title: "Unsorted", filter: .unsorted)
-                    }
-                }
-
                 VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(gridTitle)
-                            .font(.title3.weight(.semibold))
+                    Text(sortSummaryText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
-                        Text(gridSubtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if filteredItems.isEmpty {
+                    if displayedItems.isEmpty {
                         CompactEmptyStateView(
                             title: emptyStateTitle,
                             message: emptyStateMessage,
@@ -266,152 +280,170 @@ struct LibraryView: View {
                         )
                     } else {
                         MemoryCardGrid(
-                            items: filteredItems,
+                            items: displayedItems,
                             assetStore: appManager.assetStore,
-                            expirationService: expirationService,
-                            folderNameProvider: gridFolderName(for:)
+                            expirationService: expirationService
                         )
                     }
                 }
             }
-            .padding(20)
-        }
-        .background(Color(.systemGroupedBackground))
-        .searchable(text: $searchText, prompt: "Search notes or folders")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var statusText: String {
-        if let selectedFolderName {
-            return "\(filteredItems.count) memories in \(selectedFolderName)"
-        }
-        if expiringSoonItems.count > 0 {
-            return "\(allItems.count) active memories, \(expiringSoonItems.count) expiring soon"
-        }
-        return "\(allItems.count) active memories"
-    }
-
-    private var gridTitle: String {
-        selectedFolderName ?? filterTitle
-    }
-
-    private var gridSubtitle: String {
-        let count = filteredItems.count
-        return count == 1 ? "1 memory" : "\(count) memories"
-    }
-
-    private var filterTitle: String {
-        switch selectedFilter {
-        case .all:
-            return "All"
-        case .expiringSoon:
-            return "Expiring Soon"
-        case .unsorted:
-            return "Unsorted"
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
         }
     }
 
-    private var selectedFolderName: String? {
-        guard let selectedFolderID else { return nil }
-        return folderLookup[selectedFolderID]?.name
+    private var sortSummaryText: String {
+        "Sorted by \(selectedSort.title.localizedLowercase)"
     }
 
     private var emptyStateTitle: String {
-        if !searchText.isEmpty {
-            return "No results"
-        }
-
-        if selectedFolderID != nil {
-            return "No memories in this folder"
-        }
-
-        switch selectedFilter {
-        case .all:
-            return "No memories yet"
-        case .expiringSoon:
-            return "Nothing expiring soon"
-        case .unsorted:
-            return "Nothing unsorted"
-        }
+        return "No memories yet"
     }
 
     private var emptyStateMessage: String {
-        if !searchText.isEmpty {
-            return "Try a different note or folder search."
-        }
-
-        if selectedFolderID != nil {
-            return "Capture something new or move memories into this folder."
-        }
-
-        switch selectedFilter {
-        case .all:
-            return "Your temporary captures will appear here."
-        case .expiringSoon:
-            return "Items due within the next 24 hours show up here."
-        case .unsorted:
-            return "Memories without a folder will collect here."
-        }
+        return "Your temporary captures will appear here."
     }
 
     private var emptyStateSymbol: String {
-        if !searchText.isEmpty {
-            return "magnifyingglass"
-        }
-
-        if selectedFolderID != nil {
-            return "folder"
-        }
-
-        switch selectedFilter {
-        case .all:
-            return "photo.on.rectangle"
-        case .expiringSoon:
-            return "clock.badge.checkmark"
-        case .unsorted:
-            return "tray"
-        }
+        return "photo.on.rectangle"
     }
 
-    private func filterChip(title: String, filter: LibraryFilter) -> some View {
-        Button {
-            selectedFolderID = nil
-            selectedFilter = filter
-        } label: {
-            Text(title)
-                .font(.subheadline.weight(.medium))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(
-                    selectedFilter == filter ? Color.primary.opacity(0.12) : Color.secondary.opacity(0.08),
-                    in: Capsule()
+    private func sort(_ items: [MemoryItem]) -> [MemoryItem] {
+        switch selectedSort {
+        case .newestFirst:
+            return items.sorted { $0.createdAt > $1.createdAt }
+        case .oldestFirst:
+            return items.sorted { $0.createdAt < $1.createdAt }
+        case .expiringSoonest:
+            return items.sorted { lhs, rhs in
+                let lhsDate = lhs.keepForever ? Date.distantFuture : lhs.expiresAt
+                let rhsDate = rhs.keepForever ? Date.distantFuture : rhs.expiresAt
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate < rhsDate
+            }
+        }
+    }
+}
+
+private struct LibraryFoldersView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
+
+    @State private var isPresentingCreate = false
+    @State private var deleteFolder: FolderEntity?
+    @State private var folderErrorMessage: String?
+
+    private let expirationService = ExpirationService()
+
+    var body: some View {
+        List {
+            if folders.isEmpty {
+                CompactEmptyStateView(
+                    title: "No folders yet",
+                    message: "Create a folder to keep related memories together.",
+                    symbol: "folder"
                 )
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 28, leading: 20, bottom: 28, trailing: 20))
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(folders, id: \.id) { folder in
+                    NavigationLink {
+                        FolderDetailView(folder: folder)
+                    } label: {
+                        FolderRowCell(
+                            folder: folder,
+                            count: FolderService(context: modelContext).activeItemCount(in: folder, expirationService: expirationService)
+                        )
+                    }
+                    .swipeActions {
+                        Button("Delete", role: .destructive) {
+                            deleteFolder = folder
+                        }
+                    }
+                }
+            }
         }
-        .buttonStyle(.plain)
-    }
-
-    private func matchesContext(_ item: MemoryItem) -> Bool {
-        if let selectedFolderID {
-            return item.folderId == selectedFolderID
+        .listStyle(.plain)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isPresentingCreate = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Add folder")
+            }
         }
-
-        switch selectedFilter {
-        case .all:
-            return true
-        case .expiringSoon:
-            return expirationService.isExpiringSoon(item)
-        case .unsorted:
-            return item.folderId == nil
+        .sheet(isPresented: $isPresentingCreate) {
+            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
+                do {
+                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                } catch {
+                    folderErrorMessage = error.localizedDescription
+                }
+            }
+        }
+        .alert("Delete Folder?", isPresented: Binding(get: {
+            deleteFolder != nil
+        }, set: { if !$0 { deleteFolder = nil } })) {
+            Button("Move Items to Unsorted", role: .destructive) {
+                if let deleteFolder {
+                    do {
+                        try FolderService(context: modelContext).deleteFolder(deleteFolder, moveItemsToUnsorted: true)
+                    } catch {
+                        folderErrorMessage = error.localizedDescription
+                    }
+                }
+                self.deleteFolder = nil
+            }
+            Button("Cancel", role: .cancel) {
+                deleteFolder = nil
+            }
+        } message: {
+            Text("Memories in this folder will stay in Forgetful and be moved to Unsorted.")
+        }
+        .alert("Folder Error", isPresented: Binding(
+            get: { folderErrorMessage != nil },
+            set: { if !$0 { folderErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                folderErrorMessage = nil
+            }
+        } message: {
+            Text(folderErrorMessage ?? "Something went wrong while updating folders.")
         }
     }
+}
 
-    private func folderName(for item: MemoryItem) -> String? {
-        guard let folderID = item.folderId else { return nil }
-        return folderLookup[folderID]?.name
-    }
+private struct FolderRowCell: View {
+    let folder: FolderEntity
+    let count: Int
 
-    private func gridFolderName(for item: MemoryItem) -> String? {
-        guard selectedFolderID == nil else { return nil }
-        return folderName(for: item)
+    private var tint: Color { Color(folderColorName: folder.colorName) }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: folder.iconName ?? "folder")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(folder.name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Text(count == 1 ? "1 active memory" : "\(count) active memories")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
     }
 }

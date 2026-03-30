@@ -116,6 +116,8 @@ struct CaptureFlowView: View {
                     FolderPickerRow(
                         title: "Unsorted",
                         subtitle: "Leave this easy to find later",
+                        symbol: "tray",
+                        tint: .secondary,
                         isSelected: selectedFolderID == nil
                     ) {
                         selectedFolderID = nil
@@ -125,6 +127,8 @@ struct CaptureFlowView: View {
                         FolderPickerRow(
                             title: folder.name,
                             subtitle: "Save into \(folder.name)",
+                            symbol: folder.iconName ?? "folder",
+                            tint: Color(folderColorName: folder.colorName),
                             isSelected: selectedFolderID == folder.id
                         ) {
                             selectedFolderID = folder.id
