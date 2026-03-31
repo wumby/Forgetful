@@ -18,7 +18,6 @@
 		A10000000000000000000009 /* CaptureFlowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* CaptureFlowView.swift */; };
 		A1000000000000000000000A /* FolderViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* FolderViews.swift */; };
 		A1000000000000000000000B /* MemoryDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* MemoryDetailView.swift */; };
-		A1000000000000000000000D /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,7 +32,6 @@
 		A20000000000000000000009 /* CaptureFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFlowView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* FolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderViews.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B /* MemoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryDetailView.swift; sourceTree = "<group>"; };
-		A2000000000000000000000D /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000000000000000000000F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A20000000000000000000010 /* Forgetful.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Forgetful.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -104,7 +102,6 @@
 				A4000000000000000000000C /* Capture */,
 				A4000000000000000000000D /* Folders */,
 				A4000000000000000000000E /* Detail */,
-				A40000000000000000000010 /* Settings */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -163,14 +160,6 @@
 				A2000000000000000000000B /* MemoryDetailView.swift */,
 			);
 			path = Detail;
-			sourceTree = "<group>";
-		};
-		A40000000000000000000010 /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-				A2000000000000000000000D /* SettingsView.swift */,
-			);
-			path = Settings;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -252,7 +241,6 @@
 				A10000000000000000000009 /* CaptureFlowView.swift in Sources */,
 				A1000000000000000000000A /* FolderViews.swift in Sources */,
 				A1000000000000000000000B /* MemoryDetailView.swift in Sources */,
-				A1000000000000000000000D /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -55,6 +55,28 @@ struct ExpirationService {
         let dayCount = max(1, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 1)
         return "\(dayCount)d left"
     }
+
+    func libraryBadgeText(for item: MemoryItem, now: Date = .now) -> String {
+        if item.keepForever || item.expiresAt == .distantFuture {
+            return "Kept"
+        }
+
+        if item.expiresAt <= now {
+            return "Expired"
+        }
+
+        let calendar = Calendar.current
+        if calendar.isDateInToday(item.expiresAt) {
+            return "Today"
+        }
+
+        if calendar.isDateInTomorrow(item.expiresAt) {
+            return "Tomorrow"
+        }
+
+        let dayCount = max(1, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 1)
+        return "\(dayCount)d left"
+    }
 }
 
 struct PhotosExportService {
@@ -191,7 +213,7 @@ struct MemoryService {
         return ((try? context.fetch(descriptor)) ?? []).filter { expirationService.isExpiringSoon($0) }
     }
 
-    func runExpirationCleanup(preferences: UserPreferences) {
+    func runExpirationCleanup(lastCleanupTracker: UserPreferences) {
         let descriptor = FetchDescriptor<MemoryItem>()
         let items = (try? context.fetch(descriptor)) ?? []
         let expired = items.filter { item in
@@ -200,17 +222,9 @@ struct MemoryService {
             item.expiresAt <= .now
         }
 
-        if preferences.autoDeleteExpired {
-            expired.forEach(delete)
-        } else {
-            expired.forEach {
-                $0.deletedAt = .now
-                $0.updatedAt = .now
-            }
-            try? context.save()
-        }
+        expired.forEach(delete)
 
-        preferences.lastCleanupDate = .now
+        lastCleanupTracker.lastCleanupDate = .now
         try? context.save()
     }
 }

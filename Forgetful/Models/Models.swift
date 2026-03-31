@@ -108,8 +108,11 @@ final class MemoryItem {
 @Model
 final class UserPreferences {
     var id: UUID
+    // Kept for model compatibility with earlier builds; the app now uses a fixed 7-day default.
     var defaultExpirationPreset: String
+    // Kept for model compatibility with earlier builds; notifications are not user-configurable in v1.
     var notificationsEnabled: Bool
+    // Kept for model compatibility with earlier builds; expired items are always auto-deleted in v1.
     var autoDeleteExpired: Bool
     var lastCleanupDate: Date?
 

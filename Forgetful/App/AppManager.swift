@@ -23,7 +23,7 @@ final class AppManager: ObservableObject {
 
         let expirationService = ExpirationService()
         let memoryService = MemoryService(context: context, assetStore: assetStore, expirationService: expirationService)
-        memoryService.runExpirationCleanup(preferences: preferences)
+        memoryService.runExpirationCleanup(lastCleanupTracker: preferences)
         lastCleanupRun = Date.now
     }
 

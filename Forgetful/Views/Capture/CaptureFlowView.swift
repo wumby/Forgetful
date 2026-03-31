@@ -81,18 +81,28 @@ struct CaptureFlowView: View {
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
 
     let image: UIImage
+    let preselectedFolderID: UUID?
+    let onSaveSuccess: ((String) -> Void)?
 
     @State private var note = ""
     @State private var selectedPreset = ExpirationPreset.sevenDays
     @State private var selectedFolderID: UUID?
+    @State private var isPresentingFolderPicker = false
+    @State private var isPresentingCreateFolder = false
     @State private var saveError: String?
 
     private let expirationService = ExpirationService()
     private let isUsingTestingFallback = !UIImagePickerController.isSourceTypeAvailable(.camera)
 
+    init(image: UIImage, preselectedFolderID: UUID? = nil, onSaveSuccess: ((String) -> Void)? = nil) {
+        self.image = image
+        self.preselectedFolderID = preselectedFolderID
+        self.onSaveSuccess = onSaveSuccess
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 18) {
                 if isUsingTestingFallback {
                     fallbackNotice
                 }
@@ -108,33 +118,7 @@ struct CaptureFlowView: View {
 
                 NoteInputCard(note: $note)
                 ExpirationPresetPicker(selectedPreset: $selectedPreset)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Folder")
-                        .font(.headline)
-
-                    FolderPickerRow(
-                        title: "Unsorted",
-                        subtitle: "Leave this easy to find later",
-                        symbol: "tray",
-                        tint: .secondary,
-                        isSelected: selectedFolderID == nil
-                    ) {
-                        selectedFolderID = nil
-                    }
-
-                    ForEach(folders, id: \.id) { folder in
-                        FolderPickerRow(
-                            title: folder.name,
-                            subtitle: "Save into \(folder.name)",
-                            symbol: folder.iconName ?? "folder",
-                            tint: Color(folderColorName: folder.colorName),
-                            isSelected: selectedFolderID == folder.id
-                        ) {
-                            selectedFolderID = folder.id
-                        }
-                    }
-                }
+                folderSection
 
                 if let saveError {
                     Text(saveError)
@@ -145,7 +129,6 @@ struct CaptureFlowView: View {
             .padding(20)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle("Save Memory")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -161,9 +144,29 @@ struct CaptureFlowView: View {
                 .fontWeight(.semibold)
             }
         }
+        .sheet(isPresented: $isPresentingFolderPicker) {
+            NavigationStack {
+                SaveFolderPickerSheet(
+                    folders: folders,
+                    selectedFolderID: $selectedFolderID,
+                    isPresentingCreateFolder: $isPresentingCreateFolder
+                )
+            }
+        }
+        .sheet(isPresented: $isPresentingCreateFolder) {
+            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
+                do {
+                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                } catch {
+                    saveError = "Could not create this folder. Try again."
+                }
+            }
+        }
         .onAppear {
-            let preferences = UserPreferences.fetchOrCreate(in: modelContext)
-            selectedPreset = expirationService.preset(from: preferences.defaultExpirationPreset)
+            selectedPreset = .sevenDays
+            if selectedFolderID == nil {
+                selectedFolderID = preselectedFolderID
+            }
         }
     }
 
@@ -186,9 +189,133 @@ struct CaptureFlowView: View {
 
         do {
             try service.createCaptureItem(image: image, note: note, folderId: selectedFolderID, expirationPreset: selectedPreset)
+            onSaveSuccess?("Mementos")
             dismiss()
         } catch {
             saveError = "Could not save this memory. Try again."
+        }
+    }
+
+    private var selectedFolder: FolderEntity? {
+        folders.first(where: { $0.id == selectedFolderID })
+    }
+
+    private var folderTitle: String {
+        selectedFolder?.name ?? "No Folder"
+    }
+
+    private var folderSymbol: String {
+        selectedFolder?.iconName ?? "tray"
+    }
+
+    private var folderTint: Color {
+        selectedFolder.map { Color(folderColorName: $0.colorName) } ?? .secondary
+    }
+
+    private var folderSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Folder")
+                .font(.subheadline.weight(.semibold))
+
+            Button {
+                isPresentingFolderPicker = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: folderSymbol)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(folderTint)
+                        .frame(width: 34, height: 34)
+                        .background(folderTint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folderTitle)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(14)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+private struct SaveFolderPickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let folders: [FolderEntity]
+    @Binding var selectedFolderID: UUID?
+    @Binding var isPresentingCreateFolder: Bool
+
+    var body: some View {
+        List {
+            Section {
+                FolderPickerRow(
+                    title: "No Folder",
+                    subtitle: nil,
+                    symbol: "tray",
+                    tint: .secondary,
+                    isSelected: selectedFolderID == nil
+                ) {
+                    selectedFolderID = nil
+                    dismiss()
+                }
+                .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+
+            Section {
+                ForEach(folders, id: \.id) { folder in
+                    FolderPickerRow(
+                        title: folder.name,
+                        subtitle: nil,
+                        symbol: folder.iconName ?? "folder",
+                        tint: Color(folderColorName: folder.colorName),
+                        isSelected: selectedFolderID == folder.id
+                    ) {
+                        selectedFolderID = folder.id
+                        dismiss()
+                    }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            } header: {
+                if !folders.isEmpty {
+                    Text("Folders")
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Choose Folder")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Close") {
+                    dismiss()
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    dismiss()
+                    DispatchQueue.main.async {
+                        isPresentingCreateFolder = true
+                    }
+                } label: {
+                    Label("Create New Folder", systemImage: "plus")
+                }
+            }
         }
     }
 }

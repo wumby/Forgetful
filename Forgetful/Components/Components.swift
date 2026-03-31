@@ -5,12 +5,15 @@ struct MemoryThumbnailCard: View {
     let thumbnail: UIImage?
     let badgeText: String
 
+    private let cardHeight: CGFloat = 184
+
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        Group {
             if let thumbnail {
                 Image(uiImage: thumbnail)
                     .resizable()
                     .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 Rectangle()
                     .fill(.tertiary.opacity(0.18))
@@ -20,12 +23,26 @@ struct MemoryThumbnailCard: View {
                             .foregroundStyle(.secondary)
                     }
             }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity)
+        .frame(height: cardHeight)
+        .background(Color.secondary.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .contentShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(alignment: .bottomTrailing) {
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.2)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .allowsHitTesting(false)
 
             CountdownBadge(text: badgeText)
-                .padding(10)
+                .padding(.trailing, 12)
+                .padding(.bottom, 12)
+                .allowsHitTesting(false)
         }
-        .frame(height: 136)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 }
 
@@ -34,11 +51,14 @@ struct CountdownBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.caption.weight(.semibold))
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.55), in: Capsule())
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(.black.opacity(0.72), in: Capsule())
     }
 }
 
@@ -76,29 +96,56 @@ struct EmptyStateView: View {
 struct ExpirationPresetPicker: View {
     @Binding var selectedPreset: ExpirationPreset
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Expires")
-                .font(.headline)
+    private let presets: [ExpirationPreset] = [.oneDay, .sevenDays, .thirtyDays]
 
-            HStack(spacing: 8) {
-                ForEach(ExpirationPreset.selectableCases) { preset in
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Expiration")
+                .font(.subheadline.weight(.semibold))
+
+            Menu {
+                ForEach(presets) { preset in
                     Button {
                         selectedPreset = preset
                     } label: {
-                        Text(preset.title)
-                            .font(.subheadline.weight(.medium))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                selectedPreset == preset ? Color.primary.opacity(0.12) : Color.secondary.opacity(0.08),
-                                in: RoundedRectangle(cornerRadius: 14)
-                            )
+                        if selectedPreset == preset {
+                            Label(title(for: preset), systemImage: "checkmark")
+                        } else {
+                            Text(title(for: preset))
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
+            } label: {
+                HStack(spacing: 12) {
+                    Text(title(for: selectedPreset))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(14)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
             }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func title(for preset: ExpirationPreset) -> String {
+        switch preset {
+        case .oneDay:
+            return "1 Day"
+        case .sevenDays:
+            return "7 Days"
+        case .thirtyDays:
+            return "1 Month"
+        case .threeDays:
+            return "3 Days"
+        case .never:
+            return "Never"
         }
     }
 }
@@ -107,14 +154,15 @@ struct NoteInputCard: View {
     @Binding var note: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Note")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
 
-            TextField("Add a short note", text: $note, axis: .vertical)
+            TextField("Optional note", text: $note, axis: .vertical)
                 .textFieldStyle(.plain)
-                .lineLimit(3...5)
-                .padding(14)
+                .lineLimit(1...2)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
         }
     }
@@ -122,7 +170,7 @@ struct NoteInputCard: View {
 
 struct FolderPickerRow: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     let symbol: String
     let tint: Color
     let isSelected: Bool
@@ -140,9 +188,11 @@ struct FolderPickerRow: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 if isSelected {
@@ -162,20 +212,25 @@ struct MemoryCardGrid: View {
     let assetStore: AssetStore
     let expirationService: ExpirationService
 
-    private let columns = [GridItem(.adaptive(minimum: 150), spacing: 12)]
+    private let columns = [
+        GridItem(.flexible(), spacing: 12, alignment: .top),
+        GridItem(.flexible(), spacing: 12, alignment: .top)
+    ]
 
     var body: some View {
-        LazyVGrid(columns: columns, spacing: 12) {
+        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
             ForEach(items, id: \.id) { item in
                 NavigationLink {
                     MemoryDetailView(item: item)
                 } label: {
                     MemoryThumbnailCard(
                         thumbnail: assetStore.loadThumbnail(filename: item.thumbnailFilename),
-                        badgeText: item.createdAt.formatted(date: .abbreviated, time: .omitted)
+                        badgeText: expirationService.libraryBadgeText(for: item)
                     )
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
             }
         }
     }

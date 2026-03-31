@@ -4,7 +4,6 @@ import SwiftUI
 enum AppTab: Hashable {
     case library
     case capture
-    case settings
 }
 
 private enum LibraryMode: String, CaseIterable, Identifiable {
@@ -36,18 +35,10 @@ private enum LibrarySort: Hashable {
 }
 
 struct RootView: View {
-    @State private var selectedTab: AppTab = .library
+    @State private var selectedTab: AppTab = .capture
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            NavigationStack {
-                LibraryView()
-            }
-            .tag(AppTab.library)
-            .tabItem {
-                Label("Library", systemImage: selectedTab == .library ? "photo.on.rectangle.fill" : "photo.on.rectangle")
-            }
-
             CaptureTabView(selectedTab: $selectedTab)
                 .tag(AppTab.capture)
                 .tabItem {
@@ -55,11 +46,11 @@ struct RootView: View {
                 }
 
             NavigationStack {
-                SettingsView()
+                LibraryView()
             }
-            .tag(AppTab.settings)
+            .tag(AppTab.library)
             .tabItem {
-                Label("Settings", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
+                Label("Mementos", systemImage: selectedTab == .library ? "photo.on.rectangle.fill" : "photo.on.rectangle")
             }
         }
         .tint(.primary)
@@ -71,56 +62,27 @@ struct CaptureTabView: View {
 
     @State private var isShowingCamera = false
     @State private var captureSession: CapturedImageSession?
-    @State private var hasAppeared = false
+    @State private var pendingSaveMessage: String?
+    @State private var toastMessage: String?
+    @State private var toastDismissTask: DispatchWorkItem?
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Capture")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+            ZStack(alignment: .top) {
+                Color(.systemGroupedBackground)
+                    .ignoresSafeArea()
 
-                    Text("Open the camera fast, save the memory, and let Forgetful handle the rest.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                if let toastMessage {
+                    CaptureToastView(message: toastMessage)
+                        .padding(.top, 8)
+                        .padding(.horizontal, 20)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
                 }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 58, height: 58)
-                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-
-                    Text("Ready to capture")
-                        .font(.title3.weight(.semibold))
-
-                    Text("Use Forgetful for parking spots, codes, receipts, whiteboards, and anything else you only need for a little while.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Button("Open Camera") {
-                        isShowingCamera = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background, in: RoundedRectangle(cornerRadius: 28))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28)
-                        .strokeBorder(.quaternary.opacity(0.8), lineWidth: 1)
-                )
-
-                Spacer()
             }
-            .padding(20)
-            .background(Color(.systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
         }
         .onAppear {
-            guard !hasAppeared else { return }
-            hasAppeared = true
             if selectedTab == .capture {
                 isShowingCamera = true
             }
@@ -129,17 +91,79 @@ struct CaptureTabView: View {
             guard newValue == .capture, !isShowingCamera, captureSession == nil else { return }
             isShowingCamera = true
         }
-        .sheet(isPresented: $isShowingCamera) {
+        .sheet(isPresented: $isShowingCamera, onDismiss: handleCameraDismiss) {
             CameraCaptureView { image in
                 captureSession = CapturedImageSession(image: image)
             }
             .ignoresSafeArea()
         }
-        .sheet(item: $captureSession) { session in
+        .sheet(item: $captureSession, onDismiss: handleSaveFlowDismiss) { session in
             NavigationStack {
-                CaptureFlowView(image: session.image)
+                CaptureFlowView(image: session.image) { destinationName in
+                    pendingSaveMessage = "Saved to \(destinationName)"
+                }
             }
         }
+    }
+
+    private func handleCameraDismiss() {
+        if captureSession == nil, selectedTab == .capture {
+            selectedTab = .library
+        }
+    }
+
+    private func handleSaveFlowDismiss() {
+        captureSession = nil
+        if let pendingSaveMessage {
+            showToast(message: pendingSaveMessage)
+            self.pendingSaveMessage = nil
+        }
+    }
+
+    private func showToast(message: String) {
+        toastDismissTask?.cancel()
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
+            toastMessage = message
+        }
+
+        let task = DispatchWorkItem {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                toastMessage = nil
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                guard selectedTab == .capture, captureSession == nil, !isShowingCamera else { return }
+                isShowingCamera = true
+            }
+        }
+
+        toastDismissTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: task)
+    }
+}
+
+private struct CaptureToastView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+
+            Text(message)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
     }
 }
 
@@ -149,6 +173,8 @@ struct LibraryView: View {
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
     @State private var selectedMode: LibraryMode = .photos
     @State private var selectedSort: LibrarySort = .newestFirst
+    @State private var isPresentingCreateFolder = false
+    @State private var folderErrorMessage: String?
 
     private let expirationService = ExpirationService()
 
@@ -161,44 +187,10 @@ struct LibraryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Library")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-
-                Text(statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            MementosHeader(subtitle: statusText, selectedMode: $selectedMode) {
+                headerAccessory
             }
-            .padding(20)
-
-            HStack(spacing: 12) {
-                Picker("Browse", selection: $selectedMode) {
-                    ForEach(LibraryMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Menu {
-                    Section("Sort") {
-                        sortButton(.newestFirst)
-                        sortButton(.oldestFirst)
-                        sortButton(.expiringSoonest)
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down.circle")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.secondary.opacity(0.08), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .opacity(selectedMode == .photos ? 1 : 0)
-                .allowsHitTesting(selectedMode == .photos)
-                .accessibilityHidden(selectedMode != .photos)
-            }
-            .padding(.horizontal, 20)
 
             Group {
                 switch selectedMode {
@@ -212,6 +204,25 @@ struct LibraryView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isPresentingCreateFolder) {
+            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
+                do {
+                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                } catch {
+                    folderErrorMessage = error.localizedDescription
+                }
+            }
+        }
+        .alert("Folder Error", isPresented: Binding(
+            get: { folderErrorMessage != nil },
+            set: { if !$0 { folderErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                folderErrorMessage = nil
+            }
+        } message: {
+            Text(folderErrorMessage ?? "Something went wrong while updating folders.")
+        }
     }
 
     private var statusText: String {
@@ -236,6 +247,84 @@ struct LibraryView: View {
                 Text(sort.title)
             }
         }
+    }
+
+    @ViewBuilder
+    private var headerAccessory: some View {
+        switch selectedMode {
+        case .photos:
+            Menu {
+                Section("Sort") {
+                    sortButton(.newestFirst)
+                    sortButton(.oldestFirst)
+                    sortButton(.expiringSoonest)
+                }
+            } label: {
+                Label("Sort", systemImage: "arrow.up.arrow.down.circle")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Color.secondary.opacity(0.08), in: Capsule())
+            }
+            .buttonStyle(.plain)
+        case .folders:
+            Button {
+                isPresentingCreateFolder = true
+            } label: {
+                Image(systemName: "plus")
+                    .font(.headline.weight(.semibold))
+                    .frame(width: 40, height: 40)
+                    .background(Color.secondary.opacity(0.08), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add folder")
+        }
+    }
+}
+
+private struct MementosHeader<Accessory: View>: View {
+    let subtitle: String
+    @Binding var selectedMode: LibraryMode
+    let accessory: () -> Accessory
+
+    init(
+        subtitle: String,
+        selectedMode: Binding<LibraryMode>,
+        @ViewBuilder accessory: @escaping () -> Accessory
+    ) {
+        self.subtitle = subtitle
+        self._selectedMode = selectedMode
+        self.accessory = accessory
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Mementos")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                accessory()
+                    .frame(minWidth: 86, alignment: .trailing)
+            }
+
+            Picker("Browse", selection: $selectedMode) {
+                ForEach(LibraryMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 20)
+        .padding(.bottom, 16)
     }
 }
 
@@ -288,7 +377,7 @@ private struct LibraryPhotosView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 120)
         }
     }
 
@@ -331,7 +420,6 @@ private struct LibraryFoldersView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
 
-    @State private var isPresentingCreate = false
     @State private var deleteFolder: FolderEntity?
     @State private var folderErrorMessage: String?
 
@@ -358,34 +446,21 @@ private struct LibraryFoldersView: View {
                             count: FolderService(context: modelContext).activeItemCount(in: folder, expirationService: expirationService)
                         )
                     }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                     .swipeActions {
-                        Button("Delete", role: .destructive) {
+                        Button(role: .destructive) {
                             deleteFolder = folder
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
+                        .tint(.red)
                     }
                 }
             }
         }
         .listStyle(.plain)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isPresentingCreate = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add folder")
-            }
-        }
-        .sheet(isPresented: $isPresentingCreate) {
-            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
-                do {
-                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
-                } catch {
-                    folderErrorMessage = error.localizedDescription
-                }
-            }
-        }
         .alert("Delete Folder?", isPresented: Binding(get: {
             deleteFolder != nil
         }, set: { if !$0 { deleteFolder = nil } })) {
@@ -429,7 +504,7 @@ private struct FolderRowCell: View {
             Image(systemName: folder.iconName ?? "folder")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tint)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 3) {
@@ -441,9 +516,8 @@ private struct FolderRowCell: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-            Spacer()
         }
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
     }
 }

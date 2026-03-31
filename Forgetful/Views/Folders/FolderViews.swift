@@ -39,9 +39,12 @@ struct FolderListView: View {
                     }
                     .tint(.blue)
 
-                    Button("Delete", role: .destructive) {
+                    Button(role: .destructive) {
                         deleteFolder = folder
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
+                    .tint(.red)
                 }
             }
         }
@@ -113,6 +116,9 @@ struct FolderDetailView: View {
 
     let folder: FolderEntity?
 
+    @State private var isShowingCamera = false
+    @State private var captureSession: CapturedImageSession?
+
     private let expirationService = ExpirationService()
 
     private var items: [MemoryItem] {
@@ -122,14 +128,16 @@ struct FolderDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 if items.isEmpty {
-                    EmptyStateView(
-                        title: "No items here",
-                        message: folder == nil ? "Capture something and leave it unsorted, or move items here later." : "This folder is ready when you need it.",
-                        symbol: "tray"
-                    )
+                    compactEmptyState
                 } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(itemCountText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
                     MemoryCardGrid(
                         items: items,
                         assetStore: appManager.assetStore,
@@ -138,9 +146,57 @@ struct FolderDetailView: View {
                 }
             }
             .padding(20)
+            .padding(.bottom, 96)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle(folder?.name ?? "Unsorted")
+        .navigationTitle(folder?.name ?? "No Folder")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isShowingCamera = true
+                } label: {
+                    Image(systemName: "camera")
+                }
+                .accessibilityLabel("Capture into this folder")
+            }
+        }
+        .sheet(isPresented: $isShowingCamera) {
+            CameraCaptureView { image in
+                captureSession = CapturedImageSession(image: image)
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(item: $captureSession) { session in
+            NavigationStack {
+                CaptureFlowView(image: session.image, preselectedFolderID: folder?.id)
+            }
+        }
+    }
+
+    private var itemCountText: String {
+        items.count == 1 ? "1 memento" : "\(items.count) mementos"
+    }
+
+    private var compactEmptyState: some View {
+        VStack(spacing: 12) {
+            Image(systemName: folder?.iconName ?? "tray")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color(folderColorName: folder?.colorName))
+                .frame(width: 52, height: 52)
+                .background(Color(folderColorName: folder?.colorName).opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+
+            Text("Nothing here yet")
+                .font(.headline)
+
+            Text("Use the camera button to add a memento directly to \(folder?.name ?? "No Folder").")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 64)
     }
 }
 
@@ -159,7 +215,24 @@ struct FolderEditorSheet: View {
     @State private var selectedIcon = "folder"
 
     private let colors = ["blue", "green", "orange", "red", "pink", "teal"]
-    private let icons = ["folder", "cart", "house", "car", "doc.text", "tag"]
+    private let icons = [
+        "folder",
+        "tag",
+        "bookmark",
+        "tray",
+        "house",
+        "car",
+        "cart",
+        "doc.text",
+        "bag",
+        "fork.knife",
+        "gift",
+        "camera",
+        "bell",
+        "clock",
+        "mappin.and.ellipse",
+        "briefcase"
+    ]
 
     var body: some View {
         NavigationStack {
@@ -189,16 +262,29 @@ struct FolderEditorSheet: View {
                 }
 
                 Section("Icon") {
-                    HStack {
-                        ForEach(icons, id: \.self) { icon in
-                            Image(systemName: icon)
-                                .frame(maxWidth: .infinity)
-                                .padding(10)
-                                .background(selectedIcon == icon ? Color.primary.opacity(0.12) : Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-                                .onTapGesture {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(icons, id: \.self) { icon in
+                                Button {
                                     selectedIcon = icon
+                                } label: {
+                                    Image(systemName: icon)
+                                        .font(.headline)
+                                        .foregroundStyle(selectedIcon == icon ? .primary : .secondary)
+                                        .frame(width: 46, height: 46)
+                                        .background(
+                                            selectedIcon == icon ? Color.primary.opacity(0.12) : Color.secondary.opacity(0.08),
+                                            in: RoundedRectangle(cornerRadius: 14)
+                                        )
+                                        .overlay {
+                                            RoundedRectangle(cornerRadius: 14)
+                                                .stroke(selectedIcon == icon ? Color.primary.opacity(0.18) : Color.clear, lineWidth: 1.5)
+                                        }
                                 }
+                                .buttonStyle(.plain)
+                            }
                         }
+                        .padding(.vertical, 2)
                     }
                 }
             }
