@@ -32,8 +32,6 @@
 		A20000000000000000000009 /* CaptureFlowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureFlowView.swift; sourceTree = "<group>"; };
 		A2000000000000000000000A /* FolderViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderViews.swift; sourceTree = "<group>"; };
 		A2000000000000000000000B /* MemoryDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryDetailView.swift; sourceTree = "<group>"; };
-		A2000000000000000000000E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		A2000000000000000000000F /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A20000000000000000000010 /* Forgetful.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Forgetful.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -262,9 +260,10 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -294,9 +293,10 @@
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -316,11 +316,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				DEVELOPMENT_TEAM = YS4W3Q38H5;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jackziegler.Forgetful;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -333,11 +334,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = "";
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIRequiresFullScreen = YES;
+				DEVELOPMENT_TEAM = YS4W3Q38H5;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIRequiresFullScreen = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.jackziegler.Forgetful;
 				PRODUCT_NAME = "$(TARGET_NAME)";

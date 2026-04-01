@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UIKit
 
 struct MemoryDetailView: View {
     @Environment(\.dismiss) private var dismiss
@@ -14,6 +15,8 @@ struct MemoryDetailView: View {
     @State private var isShowingFolderPicker = false
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingImageViewer = false
+    @State private var shareURL: URL?
+    @State private var shareErrorMessage: String?
 
     private let expirationService = ExpirationService()
     private let photosExportService = PhotosExportService()
@@ -45,6 +48,12 @@ struct MemoryDetailView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
+                        sharePhoto()
+                    } label: {
+                        Label("Share Memento", systemImage: "square.and.arrow.up")
+                    }
+
+                    Button {
                         exportToPhotos(memoryService: memoryService)
                     } label: {
                         Label(isExporting ? "Saving to Photos..." : (item.wasExportedToPhotos ? "Save to Photos Again" : "Save to Photos"), systemImage: item.wasExportedToPhotos ? "checkmark.circle.fill" : "square.and.arrow.down")
@@ -59,14 +68,13 @@ struct MemoryDetailView: View {
 
                     Divider()
 
-                    Button {
+                    Button(role: .destructive) {
                         isShowingDeleteConfirmation = true
                     } label: {
                         HStack {
-                            Text("Delete Memory")
+                            Text("Delete Memento")
                             Spacer()
-                            Image(systemName: "trash")
-                                .foregroundStyle(.red)
+                            Image(uiImage: tintedDeleteMemoryIcon)
                         }
                     }
                 } label: {
@@ -87,8 +95,18 @@ struct MemoryDetailView: View {
         } message: {
             Text(exportMessage ?? "")
         }
-        .confirmationDialog("Delete this memory?", isPresented: $isShowingDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete Memory", role: .destructive) {
+        .alert("Share Memento", isPresented: Binding(
+            get: { shareErrorMessage != nil },
+            set: { if !$0 { shareErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                shareErrorMessage = nil
+            }
+        } message: {
+            Text(shareErrorMessage ?? "")
+        }
+        .confirmationDialog("Delete this memento?", isPresented: $isShowingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete Memento", role: .destructive) {
                 memoryService.delete(item)
                 dismiss()
             }
@@ -113,13 +131,18 @@ struct MemoryDetailView: View {
                 FullScreenMemoryImageViewer(image: image)
             }
         }
+        .sheet(item: $shareURL, onDismiss: cleanupSharedFile) { url in
+            ActivityViewController(activityItems: [url]) {
+                cleanupSharedFile()
+            }
+        }
     }
 
     private var folderName: String {
         if let folder = folders.first(where: { $0.id == item.folderId }) {
             return folder.name
         }
-        return "Unsorted"
+        return "No Folder"
     }
 
     private var createdDateText: String {
@@ -158,12 +181,76 @@ struct MemoryDetailView: View {
             do {
                 try await photosExportService.export(image: image)
                 memoryService.markExportedToPhotos(item)
-                exportMessage = "Saved to Photos. This Forgetful item will still expire normally unless you extend or delete it."
+                exportMessage = "Saved to Photos. This memento will still expire in Forgetful on schedule."
             } catch {
                 exportMessage = (error as? LocalizedError)?.errorDescription ?? "Forgetful couldn't save this image to Photos."
             }
         }
     }
+
+    private func sharePhoto() {
+        let fileURL = appManager.assetStore.originalFileURL(filename: item.imageFilename)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            shareErrorMessage = "The original image could not be loaded."
+            return
+        }
+
+        do {
+            let sharedURL = try prepareShareURL(from: fileURL)
+            shareURL = sharedURL
+        } catch {
+            shareErrorMessage = "This photo couldn't be prepared for sharing."
+        }
+    }
+
+    private func prepareShareURL(from originalURL: URL) throws -> URL {
+        let fileManager = FileManager.default
+        let shareDirectory = fileManager.temporaryDirectory.appendingPathComponent("ForgetfulShares", isDirectory: true)
+
+        if !fileManager.fileExists(atPath: shareDirectory.path) {
+            try fileManager.createDirectory(at: shareDirectory, withIntermediateDirectories: true)
+        }
+
+        let destinationURL = shareDirectory.appendingPathComponent("\(item.id.uuidString).jpg")
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try? fileManager.removeItem(at: destinationURL)
+        }
+
+        try fileManager.copyItem(at: originalURL, to: destinationURL)
+        return destinationURL
+    }
+
+    private func cleanupSharedFile() {
+        guard let shareURL else { return }
+        try? FileManager.default.removeItem(at: shareURL)
+        self.shareURL = nil
+    }
+}
+
+private struct ActivityViewController: UIViewControllerRepresentable {
+    let activityItems: [Any]
+    var onComplete: (() -> Void)? = nil
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            onComplete?()
+        }
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+extension URL: @retroactive Identifiable {
+    public var id: String { absoluteString }
+}
+
+private var tintedDeleteMemoryIcon: UIImage {
+    let configuration = UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+    return UIImage(systemName: "trash", withConfiguration: configuration)?
+        .withTintColor(.systemRed, renderingMode: .alwaysOriginal) ?? UIImage()
 }
 
 private struct MemoryHeroImage: View {
@@ -434,8 +521,8 @@ private struct FolderPickerSheet: View {
     var body: some View {
         List {
             folderButton(
-                title: "Unsorted",
-                subtitle: "Keep this memory outside a folder",
+                title: "No Folder",
+                subtitle: "Keep this memory outside folders",
                 symbol: "tray",
                 tint: .secondary,
                 folderID: nil

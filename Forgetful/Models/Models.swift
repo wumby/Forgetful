@@ -23,6 +23,16 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
         case .never: "Never"
         }
     }
+
+    var settingsTitle: String {
+        switch self {
+        case .oneDay: "1 Day"
+        case .threeDays: "3 Days"
+        case .sevenDays: "7 Days"
+        case .thirtyDays: "1 Month"
+        case .never: "Never"
+        }
+    }
 }
 
 @Model
@@ -108,7 +118,7 @@ final class MemoryItem {
 @Model
 final class UserPreferences {
     var id: UUID
-    // Kept for model compatibility with earlier builds; the app now uses a fixed 7-day default.
+    // Stores the user-selected default expiration preset used by the capture flow.
     var defaultExpirationPreset: String
     // Kept for model compatibility with earlier builds; notifications are not user-configurable in v1.
     var notificationsEnabled: Bool

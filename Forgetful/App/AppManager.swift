@@ -12,7 +12,13 @@ final class AppManager: ObservableObject {
 
     func handleScenePhaseChange(_ phase: ScenePhase, container: ModelContainer) {
         guard phase == .active else { return }
+        ensureDefaultFolders(container: container)
         runCleanupIfNeeded(container: container)
+    }
+
+    func ensureDefaultFolders(container: ModelContainer) {
+        let context = container.mainContext
+        FolderService(context: context).ensureDefaultFolders()
     }
 
     func runCleanupIfNeeded(container: ModelContainer, force: Bool = false) {

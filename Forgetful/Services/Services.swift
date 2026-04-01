@@ -4,6 +4,14 @@ import SwiftData
 import UIKit
 
 struct ExpirationService {
+    enum LibraryBadgeTone {
+        case urgent
+        case tomorrow
+        case warning
+        case calm
+        case archived
+    }
+
     func date(for preset: ExpirationPreset, from baseDate: Date = .now) -> Date {
         switch preset {
         case .oneDay:
@@ -77,6 +85,34 @@ struct ExpirationService {
         let dayCount = max(1, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 1)
         return "\(dayCount)d left"
     }
+
+    func libraryBadgeTone(for item: MemoryItem, now: Date = .now) -> LibraryBadgeTone {
+        if item.keepForever || item.expiresAt == .distantFuture {
+            return .archived
+        }
+
+        if item.expiresAt <= now {
+            return .urgent
+        }
+
+        let calendar = Calendar.current
+        if calendar.isDateInTomorrow(item.expiresAt) {
+            return .tomorrow
+        }
+
+        let dayCount = max(0, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 0)
+
+        switch dayCount {
+        case 0:
+            return .urgent
+        case 1:
+            return .tomorrow
+        case 2...3:
+            return .warning
+        default:
+            return .calm
+        }
+    }
 }
 
 struct PhotosExportService {
@@ -121,17 +157,44 @@ enum PhotosExportError: LocalizedError {
 
 @MainActor
 struct FolderService {
+    static let maxNameLength = 24
+
     let context: ModelContext
+
+    func ensureDefaultFolders() {
+        let descriptor = FetchDescriptor<FolderEntity>(sortBy: [SortDescriptor(\.sortOrder)])
+        let existingFolders = (try? context.fetch(descriptor)) ?? []
+        guard existingFolders.isEmpty else { return }
+
+        let defaults: [(name: String, color: String, icon: String)] = [
+            ("Home", "blue", "house"),
+            ("Travel", "teal", "airplane"),
+            ("Info", "orange", "info.circle")
+        ]
+
+        for (index, folder) in defaults.enumerated() {
+            let entity = FolderEntity(
+                name: folder.name,
+                colorName: folder.color,
+                iconName: folder.icon,
+                sortOrder: index
+            )
+            context.insert(entity)
+        }
+
+        try? context.save()
+    }
 
     func createFolder(name: String, colorName: String?, iconName: String?) throws {
         let currentCount = (try? context.fetchCount(FetchDescriptor<FolderEntity>())) ?? 0
-        let folder = FolderEntity(name: name, colorName: colorName, iconName: iconName, sortOrder: currentCount)
+        let sanitizedName = sanitizedFolderName(from: name)
+        let folder = FolderEntity(name: sanitizedName, colorName: colorName, iconName: iconName, sortOrder: currentCount)
         context.insert(folder)
         try context.save()
     }
 
     func renameFolder(_ folder: FolderEntity, name: String) throws {
-        folder.name = name
+        folder.name = sanitizedFolderName(from: name)
         try context.save()
     }
 
@@ -148,10 +211,25 @@ struct FolderService {
         fetchItems(in: folder).filter { expirationService.isActive($0) }.count
     }
 
+    func activeItemCounts(expirationService: ExpirationService = ExpirationService()) -> [UUID: Int] {
+        let descriptor = FetchDescriptor<MemoryItem>()
+        let items = ((try? context.fetch(descriptor)) ?? []).filter { expirationService.isActive($0) }
+
+        return items.reduce(into: [:]) { counts, item in
+            guard let folderId = item.folderId else { return }
+            counts[folderId, default: 0] += 1
+        }
+    }
+
     func fetchItems(in folder: FolderEntity) -> [MemoryItem] {
         let folderID = folder.id
         let descriptor = FetchDescriptor<MemoryItem>(predicate: #Predicate { $0.folderId == folderID })
         return (try? context.fetch(descriptor)) ?? []
+    }
+
+    private func sanitizedFolderName(from name: String) -> String {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(trimmedName.prefix(Self.maxNameLength))
     }
 }
 
@@ -168,16 +246,25 @@ struct MemoryService {
         expirationPreset: ExpirationPreset
     ) throws {
         let savedAsset = try assetStore.save(image: image)
-        let item = MemoryItem(
-            imageFilename: savedAsset.imageFilename,
-            thumbnailFilename: savedAsset.thumbnailFilename,
-            note: note.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-            expiresAt: expirationService.date(for: expirationPreset),
-            folderId: folderId,
-            keepForever: expirationPreset == .never
-        )
-        context.insert(item)
-        try context.save()
+
+        do {
+            let item = MemoryItem(
+                imageFilename: savedAsset.imageFilename,
+                thumbnailFilename: savedAsset.thumbnailFilename,
+                note: note.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                expiresAt: expirationService.date(for: expirationPreset),
+                folderId: folderId,
+                keepForever: expirationPreset == .never
+            )
+            context.insert(item)
+            try context.save()
+        } catch {
+            assetStore.deleteAssetFiles(
+                imageFilename: savedAsset.imageFilename,
+                thumbnailFilename: savedAsset.thumbnailFilename
+            )
+            throw error
+        }
     }
 
     func move(_ item: MemoryItem, to folderId: UUID?) {

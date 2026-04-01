@@ -4,8 +4,10 @@ import SwiftUI
 struct MemoryThumbnailCard: View {
     let thumbnail: UIImage?
     let badgeText: String
+    let badgeTone: ExpirationService.LibraryBadgeTone
 
-    private let cardHeight: CGFloat = 184
+    private let cardHeight: CGFloat = 178
+    private let cornerRadius: CGFloat = 18
 
     var body: some View {
         Group {
@@ -27,20 +29,21 @@ struct MemoryThumbnailCard: View {
         .frame(minWidth: 0, maxWidth: .infinity)
         .frame(height: cardHeight)
         .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-        .contentShape(RoundedRectangle(cornerRadius: 16))
-        .overlay(alignment: .bottomTrailing) {
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay {
             LinearGradient(
-                colors: [.clear, .black.opacity(0.2)],
-                startPoint: .center,
+                colors: [.clear, .black.opacity(0.08), .black.opacity(0.2)],
+                startPoint: .top,
                 endPoint: .bottom
             )
-            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .allowsHitTesting(false)
-
-            CountdownBadge(text: badgeText)
-                .padding(.trailing, 12)
-                .padding(.bottom, 12)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            CountdownBadge(text: badgeText, tone: badgeTone)
+                .padding(.trailing, 10)
+                .padding(.bottom, 10)
                 .allowsHitTesting(false)
         }
     }
@@ -48,17 +51,95 @@ struct MemoryThumbnailCard: View {
 
 struct CountdownBadge: View {
     let text: String
+    let tone: ExpirationService.LibraryBadgeTone
 
     var body: some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .minimumScaleFactor(0.9)
-            .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(.black.opacity(0.72), in: Capsule())
+        HStack(spacing: 0) {
+            Text(text)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(textColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            .ultraThinMaterial,
+            in: Capsule()
+        )
+        .background(
+            Capsule()
+                .fill(tintColor.opacity(backgroundOpacity))
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(borderColor, lineWidth: 0.8)
+        )
+        .shadow(color: shadowColor, radius: 8, y: 3)
+    }
+
+    private var tintColor: Color {
+        switch tone {
+        case .urgent:
+            return .red
+        case .tomorrow:
+            return Color(red: 1.0, green: 0.7, blue: 0.22)
+        case .warning:
+            return .orange
+        case .calm:
+            return Color(red: 0.95, green: 0.78, blue: 0.42)
+        case .archived:
+            return .gray
+        }
+    }
+
+    private var backgroundOpacity: Double {
+        switch tone {
+        case .urgent:
+            return 0.32
+        case .tomorrow:
+            return 0.28
+        case .warning:
+            return 0.22
+        case .calm:
+            return 0.14
+        case .archived:
+            return 0.12
+        }
+    }
+
+    private var borderColor: Color {
+        switch tone {
+        case .urgent, .tomorrow, .warning:
+            return tintColor.opacity(0.55)
+        case .calm:
+            return .white.opacity(0.18)
+        case .archived:
+            return .white.opacity(0.12)
+        }
+    }
+
+    private var textColor: Color {
+        switch tone {
+        case .urgent, .tomorrow:
+            return .white
+        case .warning:
+            return Color(red: 1.0, green: 0.96, blue: 0.9)
+        case .calm, .archived:
+            return .white
+        }
+    }
+
+    private var shadowColor: Color {
+        switch tone {
+        case .urgent:
+            return .red.opacity(0.22)
+        case .tomorrow:
+            return Color.orange.opacity(0.2)
+        default:
+            return .black.opacity(0.22)
+        }
     }
 }
 
@@ -153,6 +234,9 @@ struct ExpirationPresetPicker: View {
 struct NoteInputCard: View {
     @Binding var note: String
 
+    private let maxLength = 140
+    private let warningThreshold = 100
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Note")
@@ -164,6 +248,21 @@ struct NoteInputCard: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                .onChange(of: note) { _, newValue in
+                    if newValue.count > maxLength {
+                        note = String(newValue.prefix(maxLength))
+                    }
+                }
+
+            if note.count >= warningThreshold {
+                HStack {
+                    Spacer()
+                    Text("\(note.count)/\(maxLength)")
+                        .font(.caption)
+                        .foregroundStyle(note.count >= maxLength ? .orange : .secondary)
+                        .monospacedDigit()
+                }
+            }
         }
     }
 }
@@ -213,19 +312,20 @@ struct MemoryCardGrid: View {
     let expirationService: ExpirationService
 
     private let columns = [
-        GridItem(.flexible(), spacing: 12, alignment: .top),
-        GridItem(.flexible(), spacing: 12, alignment: .top)
+        GridItem(.flexible(), spacing: 10, alignment: .top),
+        GridItem(.flexible(), spacing: 10, alignment: .top)
     ]
 
     var body: some View {
-        LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+        LazyVGrid(columns: columns, alignment: .center, spacing: 10) {
             ForEach(items, id: \.id) { item in
                 NavigationLink {
                     MemoryDetailView(item: item)
                 } label: {
                     MemoryThumbnailCard(
                         thumbnail: assetStore.loadThumbnail(filename: item.thumbnailFilename),
-                        badgeText: expirationService.libraryBadgeText(for: item)
+                        badgeText: expirationService.libraryBadgeText(for: item),
+                        badgeTone: expirationService.libraryBadgeTone(for: item)
                     )
                     .frame(maxWidth: .infinity)
                 }

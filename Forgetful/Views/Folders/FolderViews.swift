@@ -1,6 +1,20 @@
 import SwiftData
 import SwiftUI
 
+private enum FolderDetailSort: Hashable {
+    case newestFirst
+    case oldestFirst
+    case expiringSoonest
+
+    var title: String {
+        switch self {
+        case .newestFirst: "Newest First"
+        case .oldestFirst: "Oldest First"
+        case .expiringSoonest: "Expiring Soonest"
+        }
+    }
+}
+
 struct FolderListView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var appManager: AppManager
@@ -81,7 +95,7 @@ struct FolderListView: View {
         .alert("Delete Folder?", isPresented: Binding(get: {
             deleteFolder != nil
         }, set: { if !$0 { deleteFolder = nil } })) {
-            Button("Move Items to Unsorted", role: .destructive) {
+            Button("Move Items to No Folder", role: .destructive) {
                 if let deleteFolder {
                     do {
                         try FolderService(context: modelContext).deleteFolder(deleteFolder, moveItemsToUnsorted: true)
@@ -95,7 +109,7 @@ struct FolderListView: View {
                 deleteFolder = nil
             }
         } message: {
-            Text("Items in this folder will be moved to Unsorted.")
+            Text("Items in this folder will be moved to No Folder.")
         }
         .alert("Folder Error", isPresented: Binding(
             get: { folderErrorMessage != nil },
@@ -118,6 +132,7 @@ struct FolderDetailView: View {
 
     @State private var isShowingCamera = false
     @State private var captureSession: CapturedImageSession?
+    @State private var selectedSort: FolderDetailSort = .newestFirst
 
     private let expirationService = ExpirationService()
 
@@ -126,20 +141,49 @@ struct FolderDetailView: View {
         return service.fetchActiveItems().filter { $0.folderId == folder?.id }
     }
 
+    private var displayedItems: [MemoryItem] {
+        sort(items)
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 if items.isEmpty {
                     compactEmptyState
                 } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(itemCountText)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Divider()
+                            .overlay(.quaternary.opacity(0.7))
+
+                        HStack(alignment: .center, spacing: 12) {
+                            Text(itemCountText)
+                                .font(.footnote.weight(.medium))
+                                .foregroundStyle(.secondary)
+
+                            Spacer()
+
+                            Menu {
+                                Section("Sort") {
+                                    sortButton(.newestFirst)
+                                    sortButton(.oldestFirst)
+                                    sortButton(.expiringSoonest)
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(sortLabel)
+                                        .font(.footnote.weight(.medium))
+                                    Image(systemName: "chevron.down")
+                                        .font(.caption2.weight(.semibold))
+                                }
+                                .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.top, 4)
                     }
 
                     MemoryCardGrid(
-                        items: items,
+                        items: displayedItems,
                         assetStore: appManager.assetStore,
                         expirationService: expirationService
                     )
@@ -150,9 +194,20 @@ struct FolderDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(.systemGroupedBackground))
-        .navigationTitle(folder?.name ?? "No Folder")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    Image(systemName: folder?.iconName ?? "tray")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color(folderColorName: folder?.colorName))
+
+                    Text(folder?.name ?? "No Folder")
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(1)
+                }
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     isShowingCamera = true
@@ -177,6 +232,47 @@ struct FolderDetailView: View {
 
     private var itemCountText: String {
         items.count == 1 ? "1 memento" : "\(items.count) mementos"
+    }
+
+    private var sortLabel: String {
+        switch selectedSort {
+        case .newestFirst:
+            "Newest"
+        case .oldestFirst:
+            "Oldest"
+        case .expiringSoonest:
+            "Expiring Soonest"
+        }
+    }
+
+    private func sortButton(_ sort: FolderDetailSort) -> some View {
+        Button {
+            selectedSort = sort
+        } label: {
+            if selectedSort == sort {
+                Label(sort.title, systemImage: "checkmark")
+            } else {
+                Text(sort.title)
+            }
+        }
+    }
+
+    private func sort(_ items: [MemoryItem]) -> [MemoryItem] {
+        switch selectedSort {
+        case .newestFirst:
+            return items.sorted { $0.createdAt > $1.createdAt }
+        case .oldestFirst:
+            return items.sorted { $0.createdAt < $1.createdAt }
+        case .expiringSoonest:
+            return items.sorted { lhs, rhs in
+                let lhsDate = lhs.keepForever ? Date.distantFuture : lhs.expiresAt
+                let rhsDate = rhs.keepForever ? Date.distantFuture : rhs.expiresAt
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate < rhsDate
+            }
+        }
     }
 
     private var compactEmptyState: some View {
@@ -214,6 +310,8 @@ struct FolderEditorSheet: View {
     @State private var selectedColor = "blue"
     @State private var selectedIcon = "folder"
 
+    private let maxNameLength = FolderService.maxNameLength
+
     private let colors = ["blue", "green", "orange", "red", "pink", "teal"]
     private let icons = [
         "folder",
@@ -239,6 +337,11 @@ struct FolderEditorSheet: View {
             Form {
                 Section("Name") {
                     TextField("Folder name", text: $name)
+                        .onChange(of: name) { _, newValue in
+                            if newValue.count > maxNameLength {
+                                name = String(newValue.prefix(maxNameLength))
+                            }
+                        }
                 }
 
                 Section("Color") {

@@ -12,14 +12,31 @@ struct CameraCaptureView: UIViewControllerRepresentable {
 
     let onCapture: (UIImage) -> Void
 
+    static var preferredSourceType: UIImagePickerController.SourceType? {
+        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+            return .camera
+        }
+
+        if UIImagePickerController.isSourceTypeAvailable(.photoLibrary) {
+            return .photoLibrary
+        }
+
+        if UIImagePickerController.isSourceTypeAvailable(.savedPhotosAlbum) {
+            return .savedPhotosAlbum
+        }
+
+        return nil
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(onCapture: onCapture, dismiss: dismiss)
     }
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let controller = UIImagePickerController()
-        controller.sourceType = resolvedSourceType
-        if resolvedSourceType == .camera {
+        let sourceType = Self.preferredSourceType ?? .photoLibrary
+        controller.sourceType = sourceType
+        if sourceType == .camera {
             controller.cameraCaptureMode = .photo
         }
         controller.delegate = context.coordinator
@@ -28,29 +45,6 @@ struct CameraCaptureView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    private var resolvedSourceType: UIImagePickerController.SourceType {
-        #if targetEnvironment(simulator)
-        #if DEBUG
-        if UIImagePickerController.isSourceTypeAvailable(.photoLibrary) {
-            return .photoLibrary
-        }
-        #endif
-        return .savedPhotosAlbum
-        #else
-        if UIImagePickerController.isSourceTypeAvailable(.camera) {
-            return .camera
-        }
-
-        #if DEBUG
-        if UIImagePickerController.isSourceTypeAvailable(.photoLibrary) {
-            return .photoLibrary
-        }
-        #endif
-
-        return .savedPhotosAlbum
-        #endif
-    }
 
     final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
         let onCapture: (UIImage) -> Void
@@ -86,13 +80,15 @@ struct CaptureFlowView: View {
 
     @State private var note = ""
     @State private var selectedPreset = ExpirationPreset.sevenDays
+    @State private var defaultPreset = ExpirationPreset.sevenDays
+    @State private var shouldUpdateDefaultPreset = false
     @State private var selectedFolderID: UUID?
     @State private var isPresentingFolderPicker = false
     @State private var isPresentingCreateFolder = false
     @State private var saveError: String?
 
     private let expirationService = ExpirationService()
-    private let isUsingTestingFallback = !UIImagePickerController.isSourceTypeAvailable(.camera)
+    private let isUsingFallbackSource = CameraCaptureView.preferredSourceType != .camera
 
     init(image: UIImage, preselectedFolderID: UUID? = nil, onSaveSuccess: ((String) -> Void)? = nil) {
         self.image = image
@@ -103,7 +99,7 @@ struct CaptureFlowView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                if isUsingTestingFallback {
+                if isUsingFallbackSource {
                     fallbackNotice
                 }
 
@@ -118,6 +114,9 @@ struct CaptureFlowView: View {
 
                 NoteInputCard(note: $note)
                 ExpirationPresetPicker(selectedPreset: $selectedPreset)
+                if selectedPreset != defaultPreset {
+                    defaultPresetToggle
+                }
                 folderSection
 
                 if let saveError {
@@ -129,6 +128,7 @@ struct CaptureFlowView: View {
             .padding(20)
         }
         .background(Color(.systemGroupedBackground))
+        .scrollDismissesKeyboard(.interactively)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -163,9 +163,18 @@ struct CaptureFlowView: View {
             }
         }
         .onAppear {
-            selectedPreset = .sevenDays
+            let preferences = UserPreferences.fetchOrCreate(in: modelContext)
+            let savedDefault = expirationService.preset(from: preferences.defaultExpirationPreset)
+            defaultPreset = savedDefault
+            selectedPreset = savedDefault
+            shouldUpdateDefaultPreset = false
             if selectedFolderID == nil {
                 selectedFolderID = preselectedFolderID
+            }
+        }
+        .onChange(of: selectedPreset) { _, newValue in
+            if newValue == defaultPreset {
+                shouldUpdateDefaultPreset = false
             }
         }
     }
@@ -176,7 +185,7 @@ struct CaptureFlowView: View {
             Text("Testing Mode")
                 .font(.headline)
 
-            Text("Camera hardware is unavailable here, so Forgetful is using a temporary debug fallback to let you test the save flow.")
+            Text("Camera capture isn't available here, so Forgetful is using your photo library instead.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -186,14 +195,41 @@ struct CaptureFlowView: View {
 
     private func saveMemory() {
         let service = MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
+        let resolvedFolderID = folders.contains(where: { $0.id == selectedFolderID }) ? selectedFolderID : nil
 
         do {
-            try service.createCaptureItem(image: image, note: note, folderId: selectedFolderID, expirationPreset: selectedPreset)
+            if shouldUpdateDefaultPreset {
+                let preferences = UserPreferences.fetchOrCreate(in: modelContext)
+                preferences.defaultExpirationPreset = selectedPreset.rawValue
+                defaultPreset = selectedPreset
+                try? modelContext.save()
+            }
+            try service.createCaptureItem(image: image, note: note, folderId: resolvedFolderID, expirationPreset: selectedPreset)
             onSaveSuccess?("Mementos")
             dismiss()
         } catch {
-            saveError = "Could not save this memory. Try again."
+            saveError = (error as? LocalizedError)?.errorDescription ?? "This memento couldn't be saved. Try again."
         }
+    }
+
+    private var defaultPresetToggle: some View {
+        Button {
+            shouldUpdateDefaultPreset.toggle()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: shouldUpdateDefaultPreset ? "checkmark.square.fill" : "square")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(shouldUpdateDefaultPreset ? .blue : .secondary)
+
+                Text("Make \(selectedPreset.settingsTitle) the new default")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+            .padding(.horizontal, 2)
+        }
+        .buttonStyle(.plain)
     }
 
     private var selectedFolder: FolderEntity? {
