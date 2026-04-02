@@ -15,42 +15,15 @@ private enum LibraryMode: String, CaseIterable, Identifiable {
     }
 }
 
-private enum LibrarySort: Hashable {
-    case newestFirst
-    case oldestFirst
-    case expiringSoonest
-
-    var title: String {
-        switch self {
-        case .newestFirst: "Newest First"
-        case .oldestFirst: "Oldest First"
-        case .expiringSoonest: "Expiring Soonest"
-        }
-    }
-}
-
 struct RootView: View {
     @State private var captureSession: CapturedImageSession?
     @State private var isShowingCamera = false
-    @State private var pendingSaveMessage: String?
-    @State private var toastMessage: String?
-    @State private var toastDismissTask: DispatchWorkItem?
     @State private var captureErrorMessage: String?
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .top) {
-                LibraryView {
-                    openCapture()
-                }
-
-                if let toastMessage {
-                    CaptureToastView(message: toastMessage)
-                        .padding(.top, 8)
-                        .padding(.horizontal, 20)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .allowsHitTesting(false)
-                }
+            LibraryView {
+                openCapture()
             }
         }
         .tint(.primary)
@@ -70,11 +43,9 @@ struct RootView: View {
         } message: {
             Text(captureErrorMessage ?? "")
         }
-        .sheet(item: $captureSession, onDismiss: handleSaveFlowDismiss) { session in
+        .sheet(item: $captureSession, onDismiss: handleCaptureFlowDismiss) { session in
             NavigationStack {
-                CaptureFlowView(image: session.image) { destinationName in
-                    pendingSaveMessage = "Saved to \(destinationName)"
-                }
+                CaptureFlowView(image: session.image)
             }
         }
     }
@@ -88,84 +59,30 @@ struct RootView: View {
         isShowingCamera = true
     }
 
-    private func handleSaveFlowDismiss() {
+    private func handleCaptureFlowDismiss() {
         captureSession = nil
-        if let pendingSaveMessage {
-            showToast(message: pendingSaveMessage)
-            self.pendingSaveMessage = nil
-        }
-    }
-
-    private func showToast(message: String) {
-        toastDismissTask?.cancel()
-        withAnimation(.spring(response: 0.32, dampingFraction: 0.9)) {
-            toastMessage = message
-        }
-
-        let task = DispatchWorkItem {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                toastMessage = nil
-            }
-        }
-
-        toastDismissTask = task
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8, execute: task)
-    }
-}
-
-private struct CaptureToastView: View {
-    let message: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-
-            Text(message)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18)
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: .black.opacity(0.08), radius: 16, y: 8)
     }
 }
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var appManager: AppManager
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
     @State private var selectedMode: LibraryMode = .photos
-    @State private var selectedSort: LibrarySort = .newestFirst
+    @State private var selectedSort: MemorySort = .newestFirst
     @State private var isPresentingCreateFolder = false
     @State private var folderErrorMessage: String?
     let onCapture: () -> Void
 
-    private let expirationService = ExpirationService()
-
-    private var allItems: [MemoryItem] {
-        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService).fetchActiveItems()
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             MementosHeader(
-                subtitle: statusText,
                 selectedMode: $selectedMode,
                 onCapture: onCapture,
-                onAddFolder: { isPresentingCreateFolder = true }
+                onAddFolder: presentCreateFolder
             )
 
             TabView(selection: $selectedMode) {
                 LibraryPhotosView(selectedSort: $selectedSort)
-                    .environmentObject(appManager)
                     .tag(LibraryMode.photos)
 
                 LibraryFoldersView()
@@ -179,8 +96,10 @@ struct LibraryView: View {
             FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
                 do {
                     try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                    return true
                 } catch {
                     folderErrorMessage = error.localizedDescription
+                    return false
                 }
             }
         }
@@ -196,14 +115,16 @@ struct LibraryView: View {
         }
     }
 
-    private var statusText: String {
-        ""
+    private func presentCreateFolder() {
+        guard folders.count < FolderService.maxFolderCount else {
+            folderErrorMessage = FolderServiceError.folderLimitReached.localizedDescription
+            return
+        }
+        isPresentingCreateFolder = true
     }
-
 }
 
 private struct MementosHeader: View {
-    let subtitle: String
     @Binding var selectedMode: LibraryMode
     let onCapture: () -> Void
     let onAddFolder: () -> Void
@@ -214,12 +135,6 @@ private struct MementosHeader: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Forgetful")
                         .font(.system(size: 34, weight: .bold, design: .rounded))
-
-                    if !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
                 }
 
                 Spacer(minLength: 12)
@@ -295,23 +210,14 @@ private struct LibraryModeSwitcher: View {
 }
 
 private struct LibraryPhotosView: View {
-    @Binding var selectedSort: LibrarySort
+    @Binding var selectedSort: MemorySort
 
-    @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var appManager: AppManager
-    @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
+    @Query(sort: \MemoryItem.createdAt, order: .reverse) private var allStoredItems: [MemoryItem]
 
     private let expirationService = ExpirationService()
 
-    private var memoryService: MemoryService {
-        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
-    }
-
-    private var allItems: [MemoryItem] {
-        memoryService.fetchActiveItems()
-    }
-
-    private func sortButton(_ sort: LibrarySort) -> some View {
+    private func sortButton(_ sort: MemorySort) -> some View {
         Button {
             selectedSort = sort
         } label: {
@@ -323,15 +229,14 @@ private struct LibraryPhotosView: View {
         }
     }
 
-    private var displayedItems: [MemoryItem] {
-        sort(allItems)
-    }
-
     var body: some View {
+        let allItems = allStoredItems.filter { expirationService.isActive($0) }
+        let displayedItems = allItems.sortedMementos(using: selectedSort)
+
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .center, spacing: 12) {
-                    Text(countText)
+                    Text(allItems.count == 1 ? "1 memento" : "\(allItems.count) mementos")
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
 
@@ -357,9 +262,9 @@ private struct LibraryPhotosView: View {
 
                 if displayedItems.isEmpty {
                     CompactEmptyStateView(
-                        title: emptyStateTitle,
-                        message: emptyStateMessage,
-                        symbol: emptyStateSymbol
+                        title: "No memories yet",
+                        message: "Your temporary captures will appear here.",
+                        symbol: "photo.on.rectangle"
                     )
                 } else {
                     MemoryCardGrid(
@@ -375,54 +280,14 @@ private struct LibraryPhotosView: View {
     }
 
     private var sortLabel: String {
-        switch selectedSort {
-        case .newestFirst:
-            "Newest"
-        case .oldestFirst:
-            "Oldest"
-        case .expiringSoonest:
-            "Expiring Soonest"
-        }
-    }
-
-    private var countText: String {
-        allItems.count == 1 ? "1 memento" : "\(allItems.count) mementos"
-    }
-
-    private var emptyStateTitle: String {
-        return "No memories yet"
-    }
-
-    private var emptyStateMessage: String {
-        return "Your temporary captures will appear here."
-    }
-
-    private var emptyStateSymbol: String {
-        return "photo.on.rectangle"
-    }
-
-    private func sort(_ items: [MemoryItem]) -> [MemoryItem] {
-        switch selectedSort {
-        case .newestFirst:
-            return items.sorted { $0.createdAt > $1.createdAt }
-        case .oldestFirst:
-            return items.sorted { $0.createdAt < $1.createdAt }
-        case .expiringSoonest:
-            return items.sorted { lhs, rhs in
-                let lhsDate = lhs.keepForever ? Date.distantFuture : lhs.expiresAt
-                let rhsDate = rhs.keepForever ? Date.distantFuture : rhs.expiresAt
-                if lhsDate == rhsDate {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhsDate < rhsDate
-            }
-        }
+        selectedSort.shortTitle
     }
 }
 
 private struct LibraryFoldersView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
+    @Query(sort: \MemoryItem.createdAt, order: .reverse) private var allItems: [MemoryItem]
 
     @State private var renameFolder: FolderEntity?
     @State private var deleteFolder: FolderEntity?
@@ -430,7 +295,10 @@ private struct LibraryFoldersView: View {
     private let expirationService = ExpirationService()
 
     private var itemCountsByFolder: [UUID: Int] {
-        FolderService(context: modelContext).activeItemCounts(expirationService: expirationService)
+        allItems.reduce(into: [:]) { counts, item in
+            guard expirationService.isActive(item), let folderId = item.folderId else { return }
+            counts[folderId, default: 0] += 1
+        }
     }
 
     var body: some View {
@@ -500,12 +368,18 @@ private struct LibraryFoldersView: View {
                 initialColorName: folder.colorName,
                 initialIconName: folder.iconName
             ) { name, color, icon in
+                let originalColor = folder.colorName
+                let originalIcon = folder.iconName
                 do {
                     folder.colorName = color
                     folder.iconName = icon
                     try FolderService(context: modelContext).renameFolder(folder, name: name)
+                    return true
                 } catch {
+                    folder.colorName = originalColor
+                    folder.iconName = originalIcon
                     folderErrorMessage = error.localizedDescription
+                    return false
                 }
             }
         }

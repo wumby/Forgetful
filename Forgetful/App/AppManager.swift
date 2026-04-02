@@ -4,7 +4,6 @@ import SwiftUI
 @MainActor
 final class AppManager: ObservableObject {
     let assetStore: AssetStore
-    @Published var lastCleanupRun: Date?
 
     init(assetStore: AssetStore) {
         self.assetStore = assetStore
@@ -12,11 +11,11 @@ final class AppManager: ObservableObject {
 
     func handleScenePhaseChange(_ phase: ScenePhase, container: ModelContainer) {
         guard phase == .active else { return }
-        ensureDefaultFolders(container: container)
+        ensureInitialFoldersIfNeeded(container: container)
         runCleanupIfNeeded(container: container)
     }
 
-    func ensureDefaultFolders(container: ModelContainer) {
+    func ensureInitialFoldersIfNeeded(container: ModelContainer) {
         let context = container.mainContext
         FolderService(context: context).ensureDefaultFolders()
     }
@@ -30,7 +29,6 @@ final class AppManager: ObservableObject {
         let expirationService = ExpirationService()
         let memoryService = MemoryService(context: context, assetStore: assetStore, expirationService: expirationService)
         memoryService.runExpirationCleanup(lastCleanupTracker: preferences)
-        lastCleanupRun = Date.now
     }
 
     private func shouldRunCleanup(lastCleanupDate: Date?) -> Bool {

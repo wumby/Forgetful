@@ -17,6 +17,7 @@ struct MemoryDetailView: View {
     @State private var isShowingImageViewer = false
     @State private var shareURL: URL?
     @State private var shareErrorMessage: String?
+    @State private var mutationErrorMessage: String?
 
     private let expirationService = ExpirationService()
     private let photosExportService = PhotosExportService()
@@ -105,10 +106,24 @@ struct MemoryDetailView: View {
         } message: {
             Text(shareErrorMessage ?? "")
         }
+        .alert("Update Failed", isPresented: Binding(
+            get: { mutationErrorMessage != nil },
+            set: { if !$0 { mutationErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                mutationErrorMessage = nil
+            }
+        } message: {
+            Text(mutationErrorMessage ?? "")
+        }
         .confirmationDialog("Delete this memento?", isPresented: $isShowingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete Memento", role: .destructive) {
-                memoryService.delete(item)
-                dismiss()
+                do {
+                    try memoryService.delete(item)
+                    dismiss()
+                } catch {
+                    mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This memento couldn't be deleted. Try again."
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -120,8 +135,12 @@ struct MemoryDetailView: View {
                     folders: folders,
                     selectedFolderID: item.folderId,
                     onSelect: { folderID in
-                        memoryService.move(item, to: folderID)
-                        isShowingFolderPicker = false
+                        do {
+                            try memoryService.move(item, to: folderID)
+                            isShowingFolderPicker = false
+                        } catch {
+                            mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This memento couldn't be moved. Try again."
+                        }
                     }
                 )
             }
@@ -180,8 +199,12 @@ struct MemoryDetailView: View {
 
             do {
                 try await photosExportService.export(image: image)
-                memoryService.markExportedToPhotos(item)
-                exportMessage = "Saved to Photos. This memento will still expire in Forgetful on schedule."
+                do {
+                    try memoryService.markExportedToPhotos(item)
+                    exportMessage = "Saved to Photos. This memento will still expire in Forgetful on schedule."
+                } catch {
+                    exportMessage = (error as? LocalizedError)?.errorDescription ?? "Forgetful saved the photo to Photos, but couldn't update its saved state."
+                }
             } catch {
                 exportMessage = (error as? LocalizedError)?.errorDescription ?? "Forgetful couldn't save this image to Photos."
             }

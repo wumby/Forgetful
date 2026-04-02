@@ -10,10 +10,6 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
 
     var id: String { rawValue }
 
-    static var selectableCases: [ExpirationPreset] {
-        [.oneDay, .threeDays, .sevenDays, .thirtyDays]
-    }
-
     var title: String {
         switch self {
         case .oneDay: "1 day"
@@ -31,6 +27,28 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
         case .sevenDays: "7 Days"
         case .thirtyDays: "1 Month"
         case .never: "Never"
+        }
+    }
+}
+
+enum MemorySort: Hashable {
+    case newestFirst
+    case oldestFirst
+    case expiringSoonest
+
+    var title: String {
+        switch self {
+        case .newestFirst: "Newest First"
+        case .oldestFirst: "Oldest First"
+        case .expiringSoonest: "Expiring Soonest"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .newestFirst: "Newest"
+        case .oldestFirst: "Oldest"
+        case .expiringSoonest: "Expiring Soonest"
         }
     }
 }
@@ -120,6 +138,8 @@ final class UserPreferences {
     var id: UUID
     // Stores the user-selected default expiration preset used by the capture flow.
     var defaultExpirationPreset: String
+    // Tracks whether the app has already completed its one-time default folder setup.
+    var hasCompletedInitialFolderSeed: Bool?
     // Kept for model compatibility with earlier builds; notifications are not user-configurable in v1.
     var notificationsEnabled: Bool
     // Kept for model compatibility with earlier builds; expired items are always auto-deleted in v1.
@@ -129,12 +149,14 @@ final class UserPreferences {
     init(
         id: UUID = UUID(),
         defaultExpirationPreset: String = ExpirationPreset.sevenDays.rawValue,
+        hasCompletedInitialFolderSeed: Bool? = nil,
         notificationsEnabled: Bool = false,
         autoDeleteExpired: Bool = true,
         lastCleanupDate: Date? = nil
     ) {
         self.id = id
         self.defaultExpirationPreset = defaultExpirationPreset
+        self.hasCompletedInitialFolderSeed = hasCompletedInitialFolderSeed
         self.notificationsEnabled = notificationsEnabled
         self.autoDeleteExpired = autoDeleteExpired
         self.lastCleanupDate = lastCleanupDate
@@ -150,26 +172,5 @@ final class UserPreferences {
         context.insert(preferences)
         try? context.save()
         return preferences
-    }
-}
-
-enum SystemDestination: String, CaseIterable, Identifiable {
-    case all
-    case expiringSoon
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .all: "All"
-        case .expiringSoon: "Expiring Soon"
-        }
-    }
-
-    var symbol: String {
-        switch self {
-        case .all: "square.stack"
-        case .expiringSoon: "clock.badge.exclamationmark"
-        }
     }
 }

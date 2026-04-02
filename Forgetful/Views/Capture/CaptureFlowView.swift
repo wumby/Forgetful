@@ -76,7 +76,6 @@ struct CaptureFlowView: View {
 
     let image: UIImage
     let preselectedFolderID: UUID?
-    let onSaveSuccess: ((String) -> Void)?
 
     @State private var note = ""
     @State private var selectedPreset = ExpirationPreset.sevenDays
@@ -85,15 +84,17 @@ struct CaptureFlowView: View {
     @State private var selectedFolderID: UUID?
     @State private var isPresentingFolderPicker = false
     @State private var isPresentingCreateFolder = false
+    @State private var isSaving = false
     @State private var saveError: String?
 
     private let expirationService = ExpirationService()
     private let isUsingFallbackSource = CameraCaptureView.preferredSourceType != .camera
+    private let noteMaxLength = 140
+    private let previewDate = Date.now
 
-    init(image: UIImage, preselectedFolderID: UUID? = nil, onSaveSuccess: ((String) -> Void)? = nil) {
+    init(image: UIImage, preselectedFolderID: UUID? = nil) {
         self.image = image
         self.preselectedFolderID = preselectedFolderID
-        self.onSaveSuccess = onSaveSuccess
     }
 
     var body: some View {
@@ -103,16 +104,12 @@ struct CaptureFlowView: View {
                     fallbackNotice
                 }
 
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: 28))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 28)
-                            .strokeBorder(.white.opacity(0.25), lineWidth: 1)
-                    )
-
-                NoteInputCard(note: $note)
+                CapturePolaroidComposer(
+                    image: image,
+                    note: $note,
+                    createdAt: previewDate,
+                    maxLength: noteMaxLength
+                )
                 ExpirationPresetPicker(selectedPreset: $selectedPreset)
                 if selectedPreset != defaultPreset {
                     defaultPresetToggle
@@ -142,6 +139,7 @@ struct CaptureFlowView: View {
                     saveMemory()
                 }
                 .fontWeight(.semibold)
+                .disabled(isSaving)
             }
         }
         .sheet(isPresented: $isPresentingFolderPicker) {
@@ -157,8 +155,10 @@ struct CaptureFlowView: View {
             FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
                 do {
                     try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                    return true
                 } catch {
-                    saveError = "Could not create this folder. Try again."
+                    saveError = error.localizedDescription
+                    return false
                 }
             }
         }
@@ -175,6 +175,11 @@ struct CaptureFlowView: View {
         .onChange(of: selectedPreset) { _, newValue in
             if newValue == defaultPreset {
                 shouldUpdateDefaultPreset = false
+            }
+        }
+        .onChange(of: note) { _, newValue in
+            if newValue.count > noteMaxLength {
+                note = String(newValue.prefix(noteMaxLength))
             }
         }
     }
@@ -194,6 +199,10 @@ struct CaptureFlowView: View {
     }
 
     private func saveMemory() {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
         let service = MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
         let resolvedFolderID = folders.contains(where: { $0.id == selectedFolderID }) ? selectedFolderID : nil
 
@@ -205,7 +214,6 @@ struct CaptureFlowView: View {
                 try? modelContext.save()
             }
             try service.createCaptureItem(image: image, note: note, folderId: resolvedFolderID, expirationPreset: selectedPreset)
-            onSaveSuccess?("Mementos")
             dismiss()
         } catch {
             saveError = (error as? LocalizedError)?.errorDescription ?? "This memento couldn't be saved. Try again."
@@ -283,6 +291,91 @@ struct CaptureFlowView: View {
     }
 }
 
+private struct CapturePolaroidComposer: View {
+    let image: UIImage
+    @Binding var note: String
+    let createdAt: Date
+    let maxLength: Int
+
+    private let photoHeight: CGFloat = 320
+    private let footerMinHeightWithNote: CGFloat = 92
+    private let footerMinHeightWithoutNote: CGFloat = 72
+    private let outerCornerRadius: CGFloat = 12
+    private let innerCornerRadius: CGFloat = 4
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(height: photoHeight)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: innerCornerRadius))
+
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("", text: $note, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.custom("Noteworthy-Bold", size: 18))
+                    .foregroundStyle(Color.black.opacity(0.76))
+                    .tint(Color.black.opacity(0.72))
+                    .scrollContentBackground(.hidden)
+                    .lineLimit(1...3)
+                    .overlay(alignment: .topLeading) {
+                        if note.isEmpty {
+                            Text("Note here... (optional)")
+                                .font(.custom("Noteworthy-Bold", size: 18))
+                                .foregroundStyle(Color.black.opacity(0.34))
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                HStack(alignment: .center) {
+                    Text(createdAt.formatted(date: .abbreviated, time: .omitted))
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.45))
+                        .textCase(.uppercase)
+                        .tracking(0.6)
+
+                    Spacer()
+
+                    if !note.isEmpty {
+                        Text("\(note.count)/\(maxLength)")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(note.count >= maxLength ? .orange : Color.black.opacity(0.35))
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: footerMinHeight, alignment: .topLeading)
+            .padding(.top, note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 10 : 12)
+            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .background(Color.white)
+        }
+        .padding(12)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.98, green: 0.97, blue: 0.94),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: outerCornerRadius)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 18, y: 10)
+    }
+
+    private var footerMinHeight: CGFloat {
+        note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? footerMinHeightWithoutNote : footerMinHeightWithNote
+    }
+}
+
 private struct SaveFolderPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -343,13 +436,15 @@ private struct SaveFolderPickerSheet: View {
             }
 
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    dismiss()
-                    DispatchQueue.main.async {
-                        isPresentingCreateFolder = true
+                if folders.count < FolderService.maxFolderCount {
+                    Button {
+                        dismiss()
+                        DispatchQueue.main.async {
+                            isPresentingCreateFolder = true
+                        }
+                    } label: {
+                        Label("Create New Folder", systemImage: "plus")
                     }
-                } label: {
-                    Label("Create New Folder", systemImage: "plus")
                 }
             }
         }

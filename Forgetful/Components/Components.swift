@@ -3,49 +3,106 @@ import SwiftUI
 
 struct MemoryThumbnailCard: View {
     let thumbnail: UIImage?
+    let note: String?
+    let createdAt: Date
     let badgeText: String
     let badgeTone: ExpirationService.LibraryBadgeTone
 
-    private let cardHeight: CGFloat = 178
-    private let cornerRadius: CGFloat = 18
+    private let photoHeight: CGFloat = 168
+    private let footerMinHeightWithNote: CGFloat = 48
+    private let footerMinHeightWithoutNote: CGFloat = 34
+    private let outerCornerRadius: CGFloat = 8
+    private let innerCornerRadius: CGFloat = 3
 
     var body: some View {
-        Group {
-            if let thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Rectangle()
-                    .fill(.tertiary.opacity(0.18))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Rectangle()
+                        .fill(Color(red: 0.87, green: 0.86, blue: 0.82))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                        }
+                }
             }
+            .frame(height: photoHeight)
+            .clipShape(RoundedRectangle(cornerRadius: innerCornerRadius))
+            .overlay(alignment: .topTrailing) {
+                CountdownBadge(text: badgeText, tone: badgeTone)
+                    .padding(.trailing, 10)
+                    .padding(.top, 10)
+                    .allowsHitTesting(false)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                if let noteText {
+                    Text(noteText)
+                        .font(.custom("Noteworthy-Bold", size: 14))
+                        .foregroundStyle(Color.black.opacity(0.76))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Text(dateText)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.45))
+                    .textCase(.uppercase)
+                    .tracking(0.6)
+            }
+            .frame(maxWidth: .infinity, minHeight: footerMinHeight, alignment: .topLeading)
+            .padding(.top, noteText == nil ? 8 : 10)
+            .padding(.bottom, noteText == nil ? 8 : 10)
+            .padding(.horizontal, 12)
+            .background(Color.white)
         }
+        .padding(10)
         .frame(minWidth: 0, maxWidth: .infinity)
-        .frame(height: cardHeight)
-        .background(Color.secondary.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .overlay {
+        .background(
             LinearGradient(
-                colors: [.clear, .black.opacity(0.08), .black.opacity(0.2)],
+                colors: [
+                    Color(red: 0.98, green: 0.97, blue: 0.94),
+                    Color.white
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-            .allowsHitTesting(false)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: outerCornerRadius)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 16, y: 9)
+        .rotationEffect(.degrees(rotationAngle))
+        .contentShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+    }
+
+    private var noteText: String? {
+        guard let note = note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
+            return nil
         }
-        .overlay(alignment: .bottomTrailing) {
-            CountdownBadge(text: badgeText, tone: badgeTone)
-                .padding(.trailing, 10)
-                .padding(.bottom, 10)
-                .allowsHitTesting(false)
-        }
+        return note
+    }
+
+    private var dateText: String {
+        createdAt.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var footerMinHeight: CGFloat {
+        noteText == nil ? footerMinHeightWithoutNote : footerMinHeightWithNote
+    }
+
+    private var rotationAngle: Double {
+        let seed = createdAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 3)
+        return (seed - 1.5) * 0.9
     }
 }
 
@@ -56,14 +113,14 @@ struct CountdownBadge: View {
     var body: some View {
         HStack(spacing: 0) {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
                 .foregroundStyle(textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
         .background(
             .ultraThinMaterial,
             in: Capsule()
@@ -143,41 +200,10 @@ struct CountdownBadge: View {
     }
 }
 
-struct EmptyStateView: View {
-    let title: String
-    let message: String
-    let symbol: String
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 30, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 62, height: 62)
-                .background(.secondary.opacity(0.12), in: Circle())
-
-            Text(title)
-                .font(.headline)
-
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(28)
-        .background(.background, in: RoundedRectangle(cornerRadius: 24))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(.quaternary.opacity(0.8), lineWidth: 1)
-        )
-    }
-}
-
 struct ExpirationPresetPicker: View {
     @Binding var selectedPreset: ExpirationPreset
 
-    private let presets: [ExpirationPreset] = [.oneDay, .sevenDays, .thirtyDays]
+    private let presets: [ExpirationPreset] = [.oneDay, .threeDays, .sevenDays, .thirtyDays]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -227,42 +253,6 @@ struct ExpirationPresetPicker: View {
             return "3 Days"
         case .never:
             return "Never"
-        }
-    }
-}
-
-struct NoteInputCard: View {
-    @Binding var note: String
-
-    private let maxLength = 140
-    private let warningThreshold = 100
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Note")
-                .font(.subheadline.weight(.semibold))
-
-            TextField("Optional note", text: $note, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...2)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-                .onChange(of: note) { _, newValue in
-                    if newValue.count > maxLength {
-                        note = String(newValue.prefix(maxLength))
-                    }
-                }
-
-            if note.count >= warningThreshold {
-                HStack {
-                    Spacer()
-                    Text("\(note.count)/\(maxLength)")
-                        .font(.caption)
-                        .foregroundStyle(note.count >= maxLength ? .orange : .secondary)
-                        .monospacedDigit()
-                }
-            }
         }
     }
 }
@@ -324,6 +314,8 @@ struct MemoryCardGrid: View {
                 } label: {
                     MemoryThumbnailCard(
                         thumbnail: assetStore.loadThumbnail(filename: item.thumbnailFilename),
+                        note: item.note,
+                        createdAt: item.createdAt,
                         badgeText: expirationService.libraryBadgeText(for: item),
                         badgeTone: expirationService.libraryBadgeTone(for: item)
                     )

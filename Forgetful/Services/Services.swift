@@ -42,28 +42,6 @@ struct ExpirationService {
         return item.expiresAt > now
     }
 
-    func countdownText(for item: MemoryItem, now: Date = .now) -> String {
-        if item.keepForever || item.expiresAt == .distantFuture {
-            return "kept"
-        }
-
-        if item.expiresAt <= now {
-            return "expired"
-        }
-
-        let calendar = Calendar.current
-        if calendar.isDateInToday(item.expiresAt) {
-            return "expires tonight"
-        }
-
-        if calendar.isDateInTomorrow(item.expiresAt) {
-            return "tomorrow"
-        }
-
-        let dayCount = max(1, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 1)
-        return "\(dayCount)d left"
-    }
-
     func libraryBadgeText(for item: MemoryItem, now: Date = .now) -> String {
         if item.keepForever || item.expiresAt == .distantFuture {
             return "Kept"
@@ -75,11 +53,12 @@ struct ExpirationService {
 
         let calendar = Calendar.current
         if calendar.isDateInToday(item.expiresAt) {
-            return "Today"
+            let hoursLeft = max(1, Int(ceil(item.expiresAt.timeIntervalSince(now) / 3600)))
+            return "\(hoursLeft)h left"
         }
 
         if calendar.isDateInTomorrow(item.expiresAt) {
-            return "Tomorrow"
+            return "1d left"
         }
 
         let dayCount = max(1, calendar.dateComponents([.day], from: calendar.startOfDay(for: now), to: calendar.startOfDay(for: item.expiresAt)).day ?? 1)
@@ -158,44 +137,85 @@ enum PhotosExportError: LocalizedError {
 @MainActor
 struct FolderService {
     static let maxNameLength = 24
+    static let maxFolderCount = 20
 
     let context: ModelContext
 
     func ensureDefaultFolders() {
-        let descriptor = FetchDescriptor<FolderEntity>(sortBy: [SortDescriptor(\.sortOrder)])
-        let existingFolders = (try? context.fetch(descriptor)) ?? []
-        guard existingFolders.isEmpty else { return }
-
-        let defaults: [(name: String, color: String, icon: String)] = [
-            ("Home", "blue", "house"),
-            ("Travel", "teal", "airplane"),
-            ("Info", "orange", "info.circle")
-        ]
-
-        for (index, folder) in defaults.enumerated() {
-            let entity = FolderEntity(
-                name: folder.name,
-                colorName: folder.color,
-                iconName: folder.icon,
-                sortOrder: index
-            )
-            context.insert(entity)
+        let preferences = UserPreferences.fetchOrCreate(in: context)
+        if preferences.hasCompletedInitialFolderSeed == true {
+            return
         }
 
-        try? context.save()
+        let descriptor = FetchDescriptor<FolderEntity>(sortBy: [SortDescriptor(\.sortOrder)])
+        let existingFolders = (try? context.fetch(descriptor)) ?? []
+
+        if preferences.hasCompletedInitialFolderSeed == nil && !existingFolders.isEmpty {
+            preferences.hasCompletedInitialFolderSeed = true
+        } else if existingFolders.isEmpty {
+            let defaults: [(name: String, color: String, icon: String)] = [
+                ("Home", "blue", "house"),
+                ("Travel", "teal", "airplane"),
+                ("Info", "orange", "info.circle")
+            ]
+
+            for (index, folder) in defaults.enumerated() {
+                let entity = FolderEntity(
+                    name: folder.name,
+                    colorName: folder.color,
+                    iconName: folder.icon,
+                    sortOrder: index
+                )
+                context.insert(entity)
+            }
+
+            preferences.hasCompletedInitialFolderSeed = true
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+        }
     }
 
     func createFolder(name: String, colorName: String?, iconName: String?) throws {
         let currentCount = (try? context.fetchCount(FetchDescriptor<FolderEntity>())) ?? 0
+        guard currentCount < Self.maxFolderCount else {
+            throw FolderServiceError.folderLimitReached
+        }
         let sanitizedName = sanitizedFolderName(from: name)
+        guard !sanitizedName.isEmpty else {
+            throw FolderServiceError.invalidName
+        }
+        guard !folderNameExists(sanitizedName) else {
+            throw FolderServiceError.duplicateName
+        }
         let folder = FolderEntity(name: sanitizedName, colorName: colorName, iconName: iconName, sortOrder: currentCount)
         context.insert(folder)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw FolderServiceError.saveFailed
+        }
     }
 
     func renameFolder(_ folder: FolderEntity, name: String) throws {
-        folder.name = sanitizedFolderName(from: name)
-        try context.save()
+        let sanitizedName = sanitizedFolderName(from: name)
+        guard !sanitizedName.isEmpty else {
+            throw FolderServiceError.invalidName
+        }
+        guard !folderNameExists(sanitizedName, excluding: folder.id) else {
+            throw FolderServiceError.duplicateName
+        }
+        folder.name = sanitizedName
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw FolderServiceError.saveFailed
+        }
     }
 
     func deleteFolder(_ folder: FolderEntity, moveItemsToUnsorted: Bool = true) throws {
@@ -204,7 +224,12 @@ struct FolderService {
             memories.forEach { $0.folderId = nil; $0.updatedAt = .now }
         }
         context.delete(folder)
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw FolderServiceError.deleteFailed
+        }
     }
 
     func activeItemCount(in folder: FolderEntity, expirationService: ExpirationService = ExpirationService()) -> Int {
@@ -230,6 +255,61 @@ struct FolderService {
     private func sanitizedFolderName(from name: String) -> String {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         return String(trimmedName.prefix(Self.maxNameLength))
+    }
+
+    private func folderNameExists(_ name: String, excluding folderID: UUID? = nil) -> Bool {
+        let descriptor = FetchDescriptor<FolderEntity>()
+        let normalizedName = name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+
+        return ((try? context.fetch(descriptor)) ?? []).contains { folder in
+            guard folder.id != folderID else { return false }
+            let existingName = folder.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            return existingName == normalizedName
+        }
+    }
+}
+
+enum FolderServiceError: LocalizedError {
+    case invalidName
+    case duplicateName
+    case folderLimitReached
+    case saveFailed
+    case deleteFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidName:
+            return "Folder names can't be empty."
+        case .duplicateName:
+            return "A folder with that name already exists."
+        case .folderLimitReached:
+            return "You've reached the maximum of 20 folders."
+        case .saveFailed:
+            return "This folder couldn't be saved. Try again."
+        case .deleteFailed:
+            return "This folder couldn't be deleted. Try again."
+        }
+    }
+}
+
+enum MemoryServiceError: LocalizedError {
+    case saveFailed
+    case deleteFailed
+    case moveFailed
+    case exportStateUpdateFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .saveFailed:
+            return "This memento couldn't be saved. Try again."
+        case .deleteFailed:
+            return "This memento couldn't be deleted. Try again."
+        case .moveFailed:
+            return "This memento couldn't be moved. Try again."
+        case .exportStateUpdateFailed:
+            return "Forgetful saved the photo to Photos, but couldn't update its saved state."
+        }
     }
 }
 
@@ -263,41 +343,49 @@ struct MemoryService {
                 imageFilename: savedAsset.imageFilename,
                 thumbnailFilename: savedAsset.thumbnailFilename
             )
-            throw error
+            throw (error as? LocalizedError) ?? MemoryServiceError.saveFailed
         }
     }
 
-    func move(_ item: MemoryItem, to folderId: UUID?) {
+    func move(_ item: MemoryItem, to folderId: UUID?) throws {
         item.folderId = folderId
         item.updatedAt = .now
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw MemoryServiceError.moveFailed
+        }
     }
 
-    func markExportedToPhotos(_ item: MemoryItem) {
+    func markExportedToPhotos(_ item: MemoryItem) throws {
         item.wasExportedToPhotos = true
         item.exportedToPhotosAt = .now
         item.updatedAt = .now
-        try? context.save()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw MemoryServiceError.exportStateUpdateFailed
+        }
     }
 
-    func delete(_ item: MemoryItem) {
-        assetStore.deleteAssetFiles(imageFilename: item.imageFilename, thumbnailFilename: item.thumbnailFilename)
+    func delete(_ item: MemoryItem) throws {
+        let imageFilename = item.imageFilename
+        let thumbnailFilename = item.thumbnailFilename
         context.delete(item)
-        try? context.save()
+        do {
+            try context.save()
+            assetStore.deleteAssetFiles(imageFilename: imageFilename, thumbnailFilename: thumbnailFilename)
+        } catch {
+            context.rollback()
+            throw MemoryServiceError.deleteFailed
+        }
     }
 
     func fetchActiveItems() -> [MemoryItem] {
         let descriptor = FetchDescriptor<MemoryItem>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
         return ((try? context.fetch(descriptor)) ?? []).filter { expirationService.isActive($0) }
-    }
-
-    func fetchRecentItems(limit: Int) -> [MemoryItem] {
-        Array(fetchActiveItems().prefix(limit))
-    }
-
-    func fetchExpiringSoonItems() -> [MemoryItem] {
-        let descriptor = FetchDescriptor<MemoryItem>(sortBy: [SortDescriptor(\.expiresAt)])
-        return ((try? context.fetch(descriptor)) ?? []).filter { expirationService.isExpiringSoon($0) }
     }
 
     func runExpirationCleanup(lastCleanupTracker: UserPreferences) {
@@ -309,10 +397,32 @@ struct MemoryService {
             item.expiresAt <= .now
         }
 
-        expired.forEach(delete)
+        expired.forEach { item in
+            try? delete(item)
+        }
 
         lastCleanupTracker.lastCleanupDate = .now
         try? context.save()
+    }
+}
+
+extension Array where Element == MemoryItem {
+    func sortedMementos(using sort: MemorySort) -> [MemoryItem] {
+        switch sort {
+        case .newestFirst:
+            return sorted { $0.createdAt > $1.createdAt }
+        case .oldestFirst:
+            return sorted { $0.createdAt < $1.createdAt }
+        case .expiringSoonest:
+            return sorted { lhs, rhs in
+                let lhsDate = lhs.keepForever ? Date.distantFuture : lhs.expiresAt
+                let rhsDate = rhs.keepForever ? Date.distantFuture : rhs.expiresAt
+                if lhsDate == rhsDate {
+                    return lhs.createdAt > rhs.createdAt
+                }
+                return lhsDate < rhsDate
+            }
+        }
     }
 }
 
