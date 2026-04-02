@@ -2,9 +2,9 @@ import Foundation
 import SwiftData
 
 enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
-    case oneDay = "1d"
     case threeDays = "3d"
     case sevenDays = "7d"
+    case fourteenDays = "14d"
     case thirtyDays = "30d"
     case never = "never"
 
@@ -12,9 +12,9 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
 
     var title: String {
         switch self {
-        case .oneDay: "1 day"
         case .threeDays: "3 days"
         case .sevenDays: "7 days"
+        case .fourteenDays: "14 days"
         case .thirtyDays: "30 days"
         case .never: "Never"
         }
@@ -22,9 +22,9 @@ enum ExpirationPreset: String, CaseIterable, Codable, Identifiable {
 
     var settingsTitle: String {
         switch self {
-        case .oneDay: "1 Day"
         case .threeDays: "3 Days"
         case .sevenDays: "7 Days"
+        case .fourteenDays: "14 Days"
         case .thirtyDays: "1 Month"
         case .never: "Never"
         }

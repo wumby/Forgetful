@@ -14,12 +14,12 @@ struct ExpirationService {
 
     func date(for preset: ExpirationPreset, from baseDate: Date = .now) -> Date {
         switch preset {
-        case .oneDay:
-            Calendar.current.date(byAdding: .day, value: 1, to: baseDate) ?? baseDate
         case .threeDays:
             Calendar.current.date(byAdding: .day, value: 3, to: baseDate) ?? baseDate
         case .sevenDays:
             Calendar.current.date(byAdding: .day, value: 7, to: baseDate) ?? baseDate
+        case .fourteenDays:
+            Calendar.current.date(byAdding: .day, value: 14, to: baseDate) ?? baseDate
         case .thirtyDays:
             Calendar.current.date(byAdding: .day, value: 30, to: baseDate) ?? baseDate
         case .never:
@@ -28,7 +28,10 @@ struct ExpirationService {
     }
 
     func preset(from rawValue: String) -> ExpirationPreset {
-        ExpirationPreset(rawValue: rawValue) ?? .sevenDays
+        if rawValue == "1d" {
+            return .sevenDays
+        }
+        return ExpirationPreset(rawValue: rawValue) ?? .sevenDays
     }
 
     func isExpiringSoon(_ item: MemoryItem, now: Date = .now) -> Bool {
@@ -446,8 +449,8 @@ enum SeedDataService {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 1200))
         let configs: [(UIColor, String, FolderEntity?, ExpirationPreset, Bool)] = [
             (.systemOrange, "Receipt for lamp return", folders[0], .threeDays, false),
-            (.systemBlue, "Side gate code 3814", folders[1], .oneDay, false),
-            (.systemGreen, "Level B2 near elevator C", folders[2], .sevenDays, false),
+            (.systemBlue, "Side gate code 3814", folders[1], .sevenDays, false),
+            (.systemGreen, "Level B2 near elevator C", folders[2], .fourteenDays, false),
             (.systemGray, "Product to compare later", folders[1], .thirtyDays, true)
         ]
 
