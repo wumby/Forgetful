@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7BE92F552F7F1D5400E43530 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 7BE92F542F7F1D5400E43530 /* Assets.xcassets */; };
 		A10000000000000000000001 /* ForgetfulApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* ForgetfulApp.swift */; };
 		A10000000000000000000002 /* AppManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppManager.swift */; };
 		A10000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Models.swift */; };
@@ -21,6 +22,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		7BE92F542F7F1D5400E43530 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000001 /* ForgetfulApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForgetfulApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* AppManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -49,6 +51,7 @@
 		A40000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
+				7BE92F542F7F1D5400E43530 /* Assets.xcassets */,
 				A40000000000000000000002 /* Forgetful */,
 				A40000000000000000000009 /* Products */,
 			);
@@ -218,6 +221,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7BE92F552F7F1D5400E43530 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -315,6 +319,8 @@
 		A70000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = YS4W3Q38H5;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
@@ -333,6 +339,8 @@
 		A70000000000000000000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = YS4W3Q38H5;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";

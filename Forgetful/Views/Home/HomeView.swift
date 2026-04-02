@@ -262,8 +262,8 @@ private struct LibraryPhotosView: View {
 
                 if displayedItems.isEmpty {
                     CompactEmptyStateView(
-                        title: "No memories yet",
-                        message: "Your temporary captures will appear here.",
+                        title: "No mementos yet",
+                        message: "Your temporary mementos will appear here.",
                         symbol: "photo.on.rectangle"
                     )
                 } else {
@@ -306,7 +306,7 @@ private struct LibraryFoldersView: View {
             if folders.isEmpty {
                 CompactEmptyStateView(
                     title: "No folders yet",
-                    message: "Create a folder to keep related memories together.",
+                    message: "Create a folder to keep related mementos together.",
                     symbol: "folder"
                 )
                 .listRowSeparator(.hidden)
