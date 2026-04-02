@@ -1,12 +1,6 @@
 import SwiftData
 import SwiftUI
 
-enum AppTab: Hashable {
-    case library
-    case capture
-    case settings
-}
-
 private enum LibraryMode: String, CaseIterable, Identifiable {
     case photos
     case folders
@@ -15,218 +9,215 @@ private enum LibraryMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .photos: "Photos"
+        case .photos: "Mementos"
         case .folders: "Folders"
         }
     }
 }
 
-private enum LibrarySort: Hashable {
-    case newestFirst
-    case oldestFirst
-    case expiringSoonest
-
-    var title: String {
-        switch self {
-        case .newestFirst: "Newest First"
-        case .oldestFirst: "Oldest First"
-        case .expiringSoonest: "Expiring Soonest"
-        }
-    }
-}
-
 struct RootView: View {
-    @State private var selectedTab: AppTab = .library
-
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            NavigationStack {
-                LibraryView()
-            }
-            .tag(AppTab.library)
-            .tabItem {
-                Label("Library", systemImage: selectedTab == .library ? "photo.on.rectangle.fill" : "photo.on.rectangle")
-            }
-
-            CaptureTabView(selectedTab: $selectedTab)
-                .tag(AppTab.capture)
-                .tabItem {
-                    Label("Capture", systemImage: selectedTab == .capture ? "camera.fill" : "camera")
-                }
-
-            NavigationStack {
-                SettingsView()
-            }
-            .tag(AppTab.settings)
-            .tabItem {
-                Label("Settings", systemImage: selectedTab == .settings ? "gearshape.fill" : "gearshape")
-            }
-        }
-        .tint(.primary)
-    }
-}
-
-struct CaptureTabView: View {
-    @Binding var selectedTab: AppTab
-
-    @State private var isShowingCamera = false
     @State private var captureSession: CapturedImageSession?
-    @State private var hasAppeared = false
+    @State private var isShowingCamera = false
+    @State private var captureErrorMessage: String?
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Capture")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-
-                    Text("Open the camera fast, save the memory, and let Forgetful handle the rest.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                VStack(alignment: .leading, spacing: 14) {
-                    Image(systemName: "camera.viewfinder")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 58, height: 58)
-                        .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-
-                    Text("Ready to capture")
-                        .font(.title3.weight(.semibold))
-
-                    Text("Use Forgetful for parking spots, codes, receipts, whiteboards, and anything else you only need for a little while.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    Button("Open Camera") {
-                        isShowingCamera = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background, in: RoundedRectangle(cornerRadius: 28))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28)
-                        .strokeBorder(.quaternary.opacity(0.8), lineWidth: 1)
-                )
-
-                Spacer()
-            }
-            .padding(20)
-            .background(Color(.systemGroupedBackground))
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .onAppear {
-            guard !hasAppeared else { return }
-            hasAppeared = true
-            if selectedTab == .capture {
-                isShowingCamera = true
+            LibraryView {
+                openCapture()
             }
         }
-        .onChange(of: selectedTab) { _, newValue in
-            guard newValue == .capture, !isShowingCamera, captureSession == nil else { return }
-            isShowingCamera = true
-        }
+        .tint(.primary)
         .sheet(isPresented: $isShowingCamera) {
             CameraCaptureView { image in
                 captureSession = CapturedImageSession(image: image)
             }
             .ignoresSafeArea()
         }
-        .sheet(item: $captureSession) { session in
+        .alert("Capture Unavailable", isPresented: Binding(
+            get: { captureErrorMessage != nil },
+            set: { if !$0 { captureErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                captureErrorMessage = nil
+            }
+        } message: {
+            Text(captureErrorMessage ?? "")
+        }
+        .sheet(item: $captureSession, onDismiss: handleCaptureFlowDismiss) { session in
             NavigationStack {
                 CaptureFlowView(image: session.image)
             }
         }
     }
+
+    private func openCapture() {
+        guard CameraCaptureView.preferredSourceType != nil else {
+            captureErrorMessage = "Camera capture isn't available, and this device can't open the photo library right now."
+            return
+        }
+
+        isShowingCamera = true
+    }
+
+    private func handleCaptureFlowDismiss() {
+        captureSession = nil
+    }
 }
 
 struct LibraryView: View {
     @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var appManager: AppManager
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
     @State private var selectedMode: LibraryMode = .photos
-    @State private var selectedSort: LibrarySort = .newestFirst
-
-    private let expirationService = ExpirationService()
-
-    private var allItems: [MemoryItem] {
-        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService).fetchActiveItems()
-    }
-
-    private var expiringSoonItems: [MemoryItem] {
-        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService).fetchExpiringSoonItems()
-    }
+    @State private var selectedSort: MemorySort = .newestFirst
+    @State private var isPresentingCreateFolder = false
+    @State private var folderErrorMessage: String?
+    let onCapture: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Library")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
+        VStack(alignment: .leading, spacing: 0) {
+            MementosHeader(
+                selectedMode: $selectedMode,
+                onCapture: onCapture,
+                onAddFolder: presentCreateFolder
+            )
 
-                Text(statusText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            TabView(selection: $selectedMode) {
+                LibraryPhotosView(selectedSort: $selectedSort)
+                    .tag(LibraryMode.photos)
+
+                LibraryFoldersView()
+                    .tag(LibraryMode.folders)
             }
-            .padding(20)
-
-            HStack(spacing: 12) {
-                Picker("Browse", selection: $selectedMode) {
-                    ForEach(LibraryMode.allCases) { mode in
-                        Text(mode.title).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Menu {
-                    Section("Sort") {
-                        sortButton(.newestFirst)
-                        sortButton(.oldestFirst)
-                        sortButton(.expiringSoonest)
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down.circle")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
-                        .background(Color.secondary.opacity(0.08), in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .opacity(selectedMode == .photos ? 1 : 0)
-                .allowsHitTesting(selectedMode == .photos)
-                .accessibilityHidden(selectedMode != .photos)
-            }
-            .padding(.horizontal, 20)
-
-            Group {
-                switch selectedMode {
-                case .photos:
-                    LibraryPhotosView(selectedSort: $selectedSort)
-                        .environmentObject(appManager)
-                case .folders:
-                    LibraryFoldersView()
-                }
-            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .background(Color(.systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private var statusText: String {
-        switch selectedMode {
-        case .photos:
-            if expiringSoonItems.count > 0 {
-                return "\(allItems.count) active memories, \(expiringSoonItems.count) expiring soon"
+        .sheet(isPresented: $isPresentingCreateFolder) {
+            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
+                do {
+                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                    return true
+                } catch {
+                    folderErrorMessage = error.localizedDescription
+                    return false
+                }
             }
-            return "\(allItems.count) active memories"
-        case .folders:
-            return folders.count == 1 ? "1 folder" : "\(folders.count) folders"
+        }
+        .alert("Folder Error", isPresented: Binding(
+            get: { folderErrorMessage != nil },
+            set: { if !$0 { folderErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                folderErrorMessage = nil
+            }
+        } message: {
+            Text(folderErrorMessage ?? "Something went wrong while updating folders.")
         }
     }
 
-    private func sortButton(_ sort: LibrarySort) -> some View {
+    private func presentCreateFolder() {
+        guard folders.count < FolderService.maxFolderCount else {
+            folderErrorMessage = FolderServiceError.folderLimitReached.localizedDescription
+            return
+        }
+        isPresentingCreateFolder = true
+    }
+}
+
+private struct MementosHeader: View {
+    @Binding var selectedMode: LibraryMode
+    let onCapture: () -> Void
+    let onAddFolder: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Forgetful")
+                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                }
+
+                Spacer(minLength: 12)
+
+                Button(action: selectedMode == .folders ? onAddFolder : onCapture) {
+                    Image(systemName: selectedMode == .folders ? "plus" : "camera")
+                        .font(.system(size: 19, weight: .bold))
+                        .frame(width: 50, height: 50)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.18), Color.white.opacity(0.08)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            in: Circle()
+                        )
+                        .overlay(
+                            Circle()
+                                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(0.2), radius: 14, y: 6)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(selectedMode == .folders ? "Add folder" : "Capture memory")
+            }
+
+            LibraryModeSwitcher(selectedMode: $selectedMode)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+    }
+}
+
+private struct LibraryModeSwitcher: View {
+    @Binding var selectedMode: LibraryMode
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(LibraryMode.allCases) { mode in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedMode = mode
+                    }
+                } label: {
+                    VStack(spacing: 7) {
+                        Text(mode.title)
+                            .font(.system(size: 16, weight: selectedMode == mode ? .semibold : .medium, design: .rounded))
+                            .foregroundStyle(selectedMode == mode ? .primary : .secondary)
+                            .frame(maxWidth: .infinity)
+
+                        Capsule()
+                            .fill(selectedMode == mode ? Color.white.opacity(0.9) : Color.clear)
+                            .frame(width: 28, height: 3)
+                    }
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity, minHeight: 42)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, 4)
+        .overlay(
+            Rectangle()
+                .fill(Color.white.opacity(0.08))
+                .frame(height: 1),
+            alignment: .bottom
+        )
+    }
+}
+
+private struct LibraryPhotosView: View {
+    @Binding var selectedSort: MemorySort
+
+    @EnvironmentObject private var appManager: AppManager
+    @Query(sort: \MemoryItem.createdAt, order: .reverse) private var allStoredItems: [MemoryItem]
+
+    private let expirationService = ExpirationService()
+
+    private func sortButton(_ sort: MemorySort) -> some View {
         Button {
             selectedSort = sort
         } label: {
@@ -237,105 +228,78 @@ struct LibraryView: View {
             }
         }
     }
-}
-
-private struct LibraryPhotosView: View {
-    @Binding var selectedSort: LibrarySort
-
-    @Environment(\.modelContext) private var modelContext
-    @EnvironmentObject private var appManager: AppManager
-    @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
-
-    private let expirationService = ExpirationService()
-
-    private var memoryService: MemoryService {
-        MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
-    }
-
-    private var allItems: [MemoryItem] {
-        memoryService.fetchActiveItems()
-    }
-
-    private var expiringSoonItems: [MemoryItem] {
-        memoryService.fetchExpiringSoonItems()
-    }
-
-    private var displayedItems: [MemoryItem] {
-        sort(allItems)
-    }
 
     var body: some View {
+        let allItems = allStoredItems.filter { expirationService.isActive($0) }
+        let displayedItems = allItems.sortedMementos(using: selectedSort)
+
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(sortSummaryText)
-                        .font(.footnote)
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 12) {
+                    Text(allItems.count == 1 ? "1 memento" : "\(allItems.count) mementos")
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.secondary)
 
-                    if displayedItems.isEmpty {
-                        CompactEmptyStateView(
-                            title: emptyStateTitle,
-                            message: emptyStateMessage,
-                            symbol: emptyStateSymbol
-                        )
-                    } else {
-                        MemoryCardGrid(
-                            items: displayedItems,
-                            assetStore: appManager.assetStore,
-                            expirationService: expirationService
-                        )
+                    Spacer()
+
+                    Menu {
+                        Section("Sort") {
+                            sortButton(.newestFirst)
+                            sortButton(.oldestFirst)
+                            sortButton(.expiringSoonest)
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(sortLabel)
+                                .font(.footnote.weight(.medium))
+                            Image(systemName: "chevron.down")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.secondary)
                     }
+                    .buttonStyle(.plain)
+                }
+
+                if displayedItems.isEmpty {
+                    CompactEmptyStateView(
+                        title: "No memories yet",
+                        message: "Your temporary captures will appear here.",
+                        symbol: "photo.on.rectangle"
+                    )
+                } else {
+                    MemoryCardGrid(
+                        items: displayedItems,
+                        assetStore: appManager.assetStore,
+                        expirationService: expirationService
+                    )
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
+            .padding(.bottom, 42)
         }
     }
 
-    private var sortSummaryText: String {
-        "Sorted by \(selectedSort.title.localizedLowercase)"
-    }
-
-    private var emptyStateTitle: String {
-        return "No memories yet"
-    }
-
-    private var emptyStateMessage: String {
-        return "Your temporary captures will appear here."
-    }
-
-    private var emptyStateSymbol: String {
-        return "photo.on.rectangle"
-    }
-
-    private func sort(_ items: [MemoryItem]) -> [MemoryItem] {
-        switch selectedSort {
-        case .newestFirst:
-            return items.sorted { $0.createdAt > $1.createdAt }
-        case .oldestFirst:
-            return items.sorted { $0.createdAt < $1.createdAt }
-        case .expiringSoonest:
-            return items.sorted { lhs, rhs in
-                let lhsDate = lhs.keepForever ? Date.distantFuture : lhs.expiresAt
-                let rhsDate = rhs.keepForever ? Date.distantFuture : rhs.expiresAt
-                if lhsDate == rhsDate {
-                    return lhs.createdAt > rhs.createdAt
-                }
-                return lhsDate < rhsDate
-            }
-        }
+    private var sortLabel: String {
+        selectedSort.shortTitle
     }
 }
 
 private struct LibraryFoldersView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
+    @Query(sort: \MemoryItem.createdAt, order: .reverse) private var allItems: [MemoryItem]
 
-    @State private var isPresentingCreate = false
+    @State private var renameFolder: FolderEntity?
     @State private var deleteFolder: FolderEntity?
     @State private var folderErrorMessage: String?
-
     private let expirationService = ExpirationService()
+
+    private var itemCountsByFolder: [UUID: Int] {
+        allItems.reduce(into: [:]) { counts, item in
+            guard expirationService.isActive(item), let folderId = item.folderId else { return }
+            counts[folderId, default: 0] += 1
+        }
+    }
 
     var body: some View {
         List {
@@ -350,46 +314,79 @@ private struct LibraryFoldersView: View {
                 .listRowBackground(Color.clear)
             } else {
                 ForEach(folders, id: \.id) { folder in
-                    NavigationLink {
-                        FolderDetailView(folder: folder)
-                    } label: {
-                        FolderRowCell(
-                            folder: folder,
-                            count: FolderService(context: modelContext).activeItemCount(in: folder, expirationService: expirationService)
-                        )
-                    }
-                    .swipeActions {
-                        Button("Delete", role: .destructive) {
-                            deleteFolder = folder
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button {
+                                renameFolder = folder
+                            } label: {
+                                Label("Edit Folder", systemImage: "pencil")
+                            }
+
+                            Divider()
+
+                            Button(role: .destructive) {
+                                deleteFolder = folder
+                            } label: {
+                                HStack {
+                                    Text("Delete Folder")
+                                    Spacer()
+                                    Image(uiImage: tintedTrashIcon)
+                                }
+                                .foregroundStyle(.red)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 34, height: 34)
+                                .background(Color.white.opacity(0.04), in: Circle())
                         }
+                        .buttonStyle(.plain)
+
+                        NavigationLink {
+                            FolderDetailView(folder: folder)
+                        } label: {
+                            FolderRowCell(
+                                folder: folder,
+                                count: itemCountsByFolder[folder.id, default: 0]
+                            )
+                        }
+                        .buttonStyle(.plain)
                     }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
             }
         }
         .listStyle(.plain)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    isPresentingCreate = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("Add folder")
-            }
-        }
-        .sheet(isPresented: $isPresentingCreate) {
-            FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
+        .sheet(item: $renameFolder) { folder in
+            FolderEditorSheet(
+                title: "Rename Folder",
+                submitTitle: "Save",
+                initialName: folder.name,
+                initialColorName: folder.colorName,
+                initialIconName: folder.iconName
+            ) { name, color, icon in
+                let originalColor = folder.colorName
+                let originalIcon = folder.iconName
                 do {
-                    try FolderService(context: modelContext).createFolder(name: name, colorName: color, iconName: icon)
+                    folder.colorName = color
+                    folder.iconName = icon
+                    try FolderService(context: modelContext).renameFolder(folder, name: name)
+                    return true
                 } catch {
+                    folder.colorName = originalColor
+                    folder.iconName = originalIcon
                     folderErrorMessage = error.localizedDescription
+                    return false
                 }
             }
         }
         .alert("Delete Folder?", isPresented: Binding(get: {
             deleteFolder != nil
         }, set: { if !$0 { deleteFolder = nil } })) {
-            Button("Move Items to Unsorted", role: .destructive) {
+            Button("Move Items to No Folder", role: .destructive) {
                 if let deleteFolder {
                     do {
                         try FolderService(context: modelContext).deleteFolder(deleteFolder, moveItemsToUnsorted: true)
@@ -403,7 +400,7 @@ private struct LibraryFoldersView: View {
                 deleteFolder = nil
             }
         } message: {
-            Text("Memories in this folder will stay in Forgetful and be moved to Unsorted.")
+            Text("Memories in this folder will stay in Forgetful and be moved to No Folder.")
         }
         .alert("Folder Error", isPresented: Binding(
             get: { folderErrorMessage != nil },
@@ -429,7 +426,7 @@ private struct FolderRowCell: View {
             Image(systemName: folder.iconName ?? "folder")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(tint)
-                .frame(width: 34, height: 34)
+                .frame(width: 36, height: 36)
                 .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 3) {
@@ -437,13 +434,18 @@ private struct FolderRowCell: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
 
-                Text(count == 1 ? "1 active memory" : "\(count) active memories")
+                Text(count == 1 ? "1 memento" : "\(count) mementos")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-
-            Spacer()
         }
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 8)
     }
+}
+
+private var tintedTrashIcon: UIImage {
+    let configuration = UIImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+    return UIImage(systemName: "trash", withConfiguration: configuration)?
+        .withTintColor(.systemRed, renderingMode: .alwaysOriginal) ?? UIImage()
 }

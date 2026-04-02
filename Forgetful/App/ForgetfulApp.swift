@@ -35,6 +35,7 @@ struct ForgetfulApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(appManager)
+                .preferredColorScheme(.dark)
         }
         .modelContainer(modelContainer)
         .onChange(of: scenePhase, initial: true) { _, newPhase in
