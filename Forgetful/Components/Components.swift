@@ -203,7 +203,7 @@ struct CountdownBadge: View {
 struct ExpirationPresetPicker: View {
     @Binding var selectedPreset: ExpirationPreset
 
-    private let presets: [ExpirationPreset] = [.oneDay, .threeDays, .sevenDays, .thirtyDays]
+    private let presets: [ExpirationPreset] = [.threeDays, .sevenDays, .fourteenDays, .thirtyDays]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -243,10 +243,10 @@ struct ExpirationPresetPicker: View {
 
     private func title(for preset: ExpirationPreset) -> String {
         switch preset {
-        case .oneDay:
-            return "1 Day"
         case .sevenDays:
             return "7 Days"
+        case .fourteenDays:
+            return "14 Days"
         case .thirtyDays:
             return "1 Month"
         case .threeDays:
