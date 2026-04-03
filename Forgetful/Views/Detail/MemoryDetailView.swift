@@ -15,12 +15,15 @@ struct MemoryDetailView: View {
     @State private var isShowingFolderPicker = false
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingImageViewer = false
+    @State private var isShowingNoteEditor = false
+    @State private var noteDraft = ""
     @State private var shareURL: URL?
     @State private var shareErrorMessage: String?
     @State private var mutationErrorMessage: String?
 
     private let expirationService = ExpirationService()
     private let photosExportService = PhotosExportService()
+    private let noteMaxLength = 140
 
     var body: some View {
         let memoryService = MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
@@ -38,7 +41,8 @@ struct MemoryDetailView: View {
                     item: item,
                     expirationDetailText: expirationDetailText,
                     folderName: folderName,
-                    createdDateText: createdDateText
+                    createdDateText: createdDateText,
+                    onEditNote: openNoteEditor
                 )
             }
             .padding(20)
@@ -140,6 +144,23 @@ struct MemoryDetailView: View {
                             isShowingFolderPicker = false
                         } catch {
                             mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This memento couldn't be moved. Try again."
+                        }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $isShowingNoteEditor) {
+            NavigationStack {
+                NoteEditorSheet(
+                    note: $noteDraft,
+                    maxLength: noteMaxLength,
+                    hasExistingNote: noteText != nil,
+                    onSave: {
+                        do {
+                            try memoryService.updateNote(item, note: noteDraft)
+                            isShowingNoteEditor = false
+                        } catch {
+                            mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This note couldn't be updated. Try again."
                         }
                     }
                 )
@@ -248,6 +269,18 @@ struct MemoryDetailView: View {
         guard let shareURL else { return }
         try? FileManager.default.removeItem(at: shareURL)
         self.shareURL = nil
+    }
+
+    private func openNoteEditor() {
+        noteDraft = item.note ?? ""
+        isShowingNoteEditor = true
+    }
+
+    private var noteText: String? {
+        guard let note = item.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
+            return nil
+        }
+        return note
     }
 }
 
@@ -450,6 +483,7 @@ private struct MemoryMetaCard: View {
     let expirationDetailText: String
     let folderName: String
     let createdDateText: String
+    let onEditNote: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -477,7 +511,23 @@ private struct MemoryMetaCard: View {
             Divider()
                 .overlay(.quaternary.opacity(0.7))
 
-            metadataSection(title: "Context") {
+            metadataSection(
+                title: "Context",
+                trailing: {
+                    Button(action: onEditNote) {
+                        HStack(spacing: 6) {
+                            Image(systemName: noteText == nil ? "plus.circle.fill" : "square.and.pencil")
+                                .font(.caption.weight(.semibold))
+
+                            Text(noteText == nil ? "Add Note" : "Edit Note")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(.blue)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            ) {
                 if let noteText {
                     metadataRow(title: "Note", value: noteText, symbol: "note.text")
                 }
@@ -493,11 +543,21 @@ private struct MemoryMetaCard: View {
         )
     }
 
-    private func metadataSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func metadataSection<Content: View, Trailing: View>(
+        title: String,
+        @ViewBuilder trailing: () -> Trailing = { EmptyView() },
+        @ViewBuilder content: () -> Content
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title.uppercased())
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title.uppercased())
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                trailing()
+            }
 
             VStack(spacing: 12) {
                 content()
@@ -531,6 +591,75 @@ private struct MemoryMetaCard: View {
             return nil
         }
         return note
+    }
+}
+
+private struct NoteEditorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isNoteFocused: Bool
+
+    @Binding var note: String
+    let maxLength: Int
+    let hasExistingNote: Bool
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            TextEditor(text: $note)
+                .focused($isNoteFocused)
+                .scrollContentBackground(.hidden)
+                .padding(12)
+                .frame(minHeight: 180, alignment: .topLeading)
+                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(.quaternary.opacity(0.9), lineWidth: 1)
+                )
+                .overlay(alignment: .topLeading) {
+                    if note.isEmpty {
+                        Text("Add a note")
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 20)
+                            .allowsHitTesting(false)
+                    }
+                }
+
+            HStack {
+                Spacer()
+
+                Text("\(note.count)/\(maxLength)")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(note.count >= maxLength ? .orange : .secondary)
+                    .monospacedDigit()
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .navigationTitle(hasExistingNote ? "Edit Note" : "Add Note")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Cancel") {
+                    dismiss()
+                }
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Save") {
+                    onSave()
+                }
+            }
+        }
+        .onChange(of: note) { _, newValue in
+            if newValue.count > maxLength {
+                note = String(newValue.prefix(maxLength))
+            }
+        }
+        .onAppear {
+            isNoteFocused = true
+        }
     }
 }
 
