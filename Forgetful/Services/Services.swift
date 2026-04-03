@@ -325,6 +325,7 @@ enum MemoryServiceError: LocalizedError {
     case saveFailed
     case deleteFailed
     case moveFailed
+    case noteUpdateFailed
     case exportStateUpdateFailed
 
     var errorDescription: String? {
@@ -335,6 +336,8 @@ enum MemoryServiceError: LocalizedError {
             return "This memento couldn't be deleted. Try again."
         case .moveFailed:
             return "This memento couldn't be moved. Try again."
+        case .noteUpdateFailed:
+            return "This note couldn't be updated. Try again."
         case .exportStateUpdateFailed:
             return "Forgetful saved the photo to Photos, but couldn't update its saved state."
         }
@@ -383,6 +386,17 @@ struct MemoryService {
         } catch {
             context.rollback()
             throw MemoryServiceError.moveFailed
+        }
+    }
+
+    func updateNote(_ item: MemoryItem, note: String) throws {
+        item.note = note.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        item.updatedAt = .now
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw MemoryServiceError.noteUpdateFailed
         }
     }
 
