@@ -70,6 +70,8 @@ struct LibraryView: View {
     @State private var selectedMode: LibraryMode = .photos
     @State private var selectedSort: MemorySort = .newestFirst
     @State private var isPresentingCreateFolder = false
+    @State private var isRearrangingFolders = false
+    @State private var draftFolderOrder: [UUID] = []
     @State private var folderErrorMessage: String?
     let onCapture: () -> Void
 
@@ -77,21 +79,40 @@ struct LibraryView: View {
         VStack(alignment: .leading, spacing: 0) {
             MementosHeader(
                 selectedMode: $selectedMode,
+                isRearrangingFolders: isRearrangingFolders,
                 onCapture: onCapture,
-                onAddFolder: presentCreateFolder
+                onAddFolder: presentCreateFolder,
+                onConfirmFolderReorder: saveFolderOrder
             )
 
             TabView(selection: $selectedMode) {
                 LibraryPhotosView(selectedSort: $selectedSort)
                     .tag(LibraryMode.photos)
 
-                LibraryFoldersView()
+                LibraryFoldersView(
+                    folders: displayedFolders,
+                    isRearranging: $isRearrangingFolders,
+                    onStartRearranging: beginFolderReordering,
+                    onMove: moveFolders
+                )
                     .tag(LibraryMode.folders)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .background(Color(.systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            syncDraftFolderOrder()
+        }
+        .onChange(of: folders.map(\.id)) { _, _ in
+            guard !isRearrangingFolders else { return }
+            syncDraftFolderOrder()
+        }
+        .onChange(of: selectedMode) { _, newMode in
+            if newMode != .folders {
+                cancelFolderReordering()
+            }
+        }
         .sheet(isPresented: $isPresentingCreateFolder) {
             FolderEditorSheet(title: "New Folder", submitTitle: "Create") { name, color, icon in
                 do {
@@ -115,6 +136,13 @@ struct LibraryView: View {
         }
     }
 
+    private var displayedFolders: [FolderEntity] {
+        let foldersByID = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+        let orderedFolders = draftFolderOrder.compactMap { foldersByID[$0] }
+        let remainingFolders = folders.filter { !draftFolderOrder.contains($0.id) }
+        return orderedFolders + remainingFolders
+    }
+
     private func presentCreateFolder() {
         guard folders.count < FolderService.maxFolderCount else {
             folderErrorMessage = FolderServiceError.folderLimitReached.localizedDescription
@@ -122,12 +150,44 @@ struct LibraryView: View {
         }
         isPresentingCreateFolder = true
     }
+
+    private func beginFolderReordering() {
+        syncDraftFolderOrder()
+        isRearrangingFolders = true
+    }
+
+    private func moveFolders(from source: IndexSet, to destination: Int) {
+        draftFolderOrder.move(fromOffsets: source, toOffset: destination)
+    }
+
+    private func saveFolderOrder() {
+        guard isRearrangingFolders else { return }
+        do {
+            try FolderService(context: modelContext).updateSortOrder(folderIDs: draftFolderOrder)
+            isRearrangingFolders = false
+            syncDraftFolderOrder()
+        } catch {
+            folderErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func cancelFolderReordering() {
+        guard isRearrangingFolders else { return }
+        isRearrangingFolders = false
+        syncDraftFolderOrder()
+    }
+
+    private func syncDraftFolderOrder() {
+        draftFolderOrder = folders.map(\.id)
+    }
 }
 
 private struct MementosHeader: View {
     @Binding var selectedMode: LibraryMode
+    let isRearrangingFolders: Bool
     let onCapture: () -> Void
     let onAddFolder: () -> Void
+    let onConfirmFolderReorder: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -139,8 +199,8 @@ private struct MementosHeader: View {
 
                 Spacer(minLength: 12)
 
-                Button(action: selectedMode == .folders ? onAddFolder : onCapture) {
-                    Image(systemName: selectedMode == .folders ? "plus" : "camera")
+                Button(action: headerButtonAction) {
+                    Image(systemName: headerButtonSymbol)
                         .font(.system(size: 19, weight: .bold))
                         .frame(width: 50, height: 50)
                         .background(
@@ -158,7 +218,7 @@ private struct MementosHeader: View {
                         .shadow(color: .black.opacity(0.2), radius: 14, y: 6)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(selectedMode == .folders ? "Add folder" : "Capture memory")
+                .accessibilityLabel(headerButtonLabel)
             }
 
             LibraryModeSwitcher(selectedMode: $selectedMode)
@@ -166,6 +226,27 @@ private struct MementosHeader: View {
         .padding(.horizontal, 20)
         .padding(.top, 18)
         .padding(.bottom, 14)
+    }
+
+    private var headerButtonSymbol: String {
+        if selectedMode == .folders {
+            return isRearrangingFolders ? "checkmark" : "plus"
+        }
+        return "camera"
+    }
+
+    private var headerButtonLabel: String {
+        if selectedMode == .folders {
+            return isRearrangingFolders ? "Save folder order" : "Add folder"
+        }
+        return "Capture memory"
+    }
+
+    private var headerButtonAction: () -> Void {
+        if selectedMode == .folders {
+            return isRearrangingFolders ? onConfirmFolderReorder : onAddFolder
+        }
+        return onCapture
     }
 }
 
@@ -286,8 +367,12 @@ private struct LibraryPhotosView: View {
 
 private struct LibraryFoldersView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
     @Query(sort: \MemoryItem.createdAt, order: .reverse) private var allItems: [MemoryItem]
+
+    let folders: [FolderEntity]
+    @Binding var isRearranging: Bool
+    let onStartRearranging: () -> Void
+    let onMove: (IndexSet, Int) -> Void
 
     @State private var renameFolder: FolderEntity?
     @State private var deleteFolder: FolderEntity?
@@ -315,51 +400,70 @@ private struct LibraryFoldersView: View {
             } else {
                 ForEach(folders, id: \.id) { folder in
                     HStack(spacing: 12) {
-                        Menu {
-                            Button {
-                                renameFolder = folder
-                            } label: {
-                                Label("Edit Folder", systemImage: "pencil")
-                            }
-
-                            Divider()
-
-                            Button(role: .destructive) {
-                                deleteFolder = folder
-                            } label: {
-                                HStack {
-                                    Text("Delete Folder")
-                                    Spacer()
-                                    Image(uiImage: tintedTrashIcon)
+                        if !isRearranging {
+                            Menu {
+                                Button {
+                                    renameFolder = folder
+                                } label: {
+                                    Label("Edit Folder", systemImage: "pencil")
                                 }
-                                .foregroundStyle(.red)
-                            }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 34, height: 34)
-                                .background(Color.white.opacity(0.04), in: Circle())
-                        }
-                        .buttonStyle(.plain)
 
-                        NavigationLink {
-                            FolderDetailView(folder: folder)
-                        } label: {
-                            FolderRowCell(
-                                folder: folder,
-                                count: itemCountsByFolder[folder.id, default: 0]
-                            )
+                                Button {
+                                    onStartRearranging()
+                                } label: {
+                                    Label("Rearrange Folders", systemImage: "arrow.up.arrow.down")
+                                }
+
+                                Divider()
+
+                                Button(role: .destructive) {
+                                    deleteFolder = folder
+                                } label: {
+                                    HStack {
+                                        Text("Delete Folder")
+                                        Spacer()
+                                        Image(uiImage: tintedTrashIcon)
+                                    }
+                                    .foregroundStyle(.red)
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, height: 34)
+                                    .background(Color.white.opacity(0.04), in: Circle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+
+                        Group {
+                            if isRearranging {
+                                FolderRowCell(
+                                    folder: folder,
+                                    count: itemCountsByFolder[folder.id, default: 0]
+                                )
+                            } else {
+                                NavigationLink {
+                                    FolderDetailView(folder: folder)
+                                } label: {
+                                    FolderRowCell(
+                                        folder: folder,
+                                        count: itemCountsByFolder[folder.id, default: 0]
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
                     .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(Color.clear)
                 }
+                .onMove(perform: onMove)
             }
         }
         .listStyle(.plain)
+        .environment(\.editMode, .constant(isRearranging ? .active : .inactive))
         .sheet(item: $renameFolder) { folder in
             FolderEditorSheet(
                 title: "Rename Folder",
