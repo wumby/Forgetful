@@ -235,6 +235,31 @@ struct FolderService {
         }
     }
 
+    func updateSortOrder(folderIDs: [UUID]) throws {
+        let descriptor = FetchDescriptor<FolderEntity>(sortBy: [SortDescriptor(\.sortOrder)])
+        let folders = (try? context.fetch(descriptor)) ?? []
+        let foldersByID = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+        var nextSortOrder = 0
+
+        for folderID in folderIDs {
+            guard let folder = foldersByID[folderID] else { continue }
+            folder.sortOrder = nextSortOrder
+            nextSortOrder += 1
+        }
+
+        for folder in folders where !folderIDs.contains(folder.id) {
+            folder.sortOrder = nextSortOrder
+            nextSortOrder += 1
+        }
+
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw FolderServiceError.saveFailed
+        }
+    }
+
     func activeItemCount(in folder: FolderEntity, expirationService: ExpirationService = ExpirationService()) -> Int {
         fetchItems(in: folder).filter { expirationService.isActive($0) }.count
     }
