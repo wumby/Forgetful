@@ -1,24 +1,101 @@
 import SwiftData
 import SwiftUI
 
-struct MemoryThumbnailCard: View {
-    let thumbnail: UIImage?
+struct MemoryPolaroidCard: View {
+    enum Style {
+        case thumbnail
+        case detail
+        case export
+
+        var metrics: Metrics {
+            switch self {
+            case .thumbnail:
+                Metrics(
+                    photoHeight: 168,
+                    footerMinHeightWithNote: 48,
+                    footerMinHeightWithoutNote: 34,
+                    outerCornerRadius: 8,
+                    innerCornerRadius: 3,
+                    outerPadding: 10,
+                    horizontalFooterPadding: 12,
+                    topFooterPaddingWithNote: 10,
+                    topFooterPaddingWithoutNote: 8,
+                    bottomFooterPadding: 8,
+                    noteFontSize: 14,
+                    dateFontSize: 13,
+                    badgeTopInset: 10,
+                    badgeTrailingInset: 10
+                )
+            case .detail:
+                Metrics(
+                    photoHeight: 356,
+                    footerMinHeightWithNote: 84,
+                    footerMinHeightWithoutNote: 58,
+                    outerCornerRadius: 16,
+                    innerCornerRadius: 6,
+                    outerPadding: 14,
+                    horizontalFooterPadding: 16,
+                    topFooterPaddingWithNote: 14,
+                    topFooterPaddingWithoutNote: 12,
+                    bottomFooterPadding: 14,
+                    noteFontSize: 20,
+                    dateFontSize: 14,
+                    badgeTopInset: 14,
+                    badgeTrailingInset: 14
+                )
+            case .export:
+                Metrics(
+                    photoHeight: 1180,
+                    footerMinHeightWithNote: 220,
+                    footerMinHeightWithoutNote: 156,
+                    outerCornerRadius: 28,
+                    innerCornerRadius: 10,
+                    outerPadding: 24,
+                    horizontalFooterPadding: 28,
+                    topFooterPaddingWithNote: 24,
+                    topFooterPaddingWithoutNote: 20,
+                    bottomFooterPadding: 24,
+                    noteFontSize: 54,
+                    dateFontSize: 30,
+                    badgeTopInset: 26,
+                    badgeTrailingInset: 26
+                )
+            }
+        }
+    }
+
+    struct Metrics {
+        let photoHeight: CGFloat
+        let footerMinHeightWithNote: CGFloat
+        let footerMinHeightWithoutNote: CGFloat
+        let outerCornerRadius: CGFloat
+        let innerCornerRadius: CGFloat
+        let outerPadding: CGFloat
+        let horizontalFooterPadding: CGFloat
+        let topFooterPaddingWithNote: CGFloat
+        let topFooterPaddingWithoutNote: CGFloat
+        let bottomFooterPadding: CGFloat
+        let noteFontSize: CGFloat
+        let dateFontSize: CGFloat
+        let badgeTopInset: CGFloat
+        let badgeTrailingInset: CGFloat
+    }
+
+    let image: UIImage?
     let note: String?
     let createdAt: Date
     let badgeText: String
     let badgeTone: ExpirationService.LibraryBadgeTone
-
-    private let photoHeight: CGFloat = 168
-    private let footerMinHeightWithNote: CGFloat = 48
-    private let footerMinHeightWithoutNote: CGFloat = 34
-    private let outerCornerRadius: CGFloat = 8
-    private let innerCornerRadius: CGFloat = 3
+    var style: Style = .thumbnail
+    var showsBadge: Bool = true
 
     var body: some View {
+        let metrics = style.metrics
+
         VStack(alignment: .leading, spacing: 0) {
             Group {
-                if let thumbnail {
-                    Image(uiImage: thumbnail)
+                if let image {
+                    Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -32,38 +109,40 @@ struct MemoryThumbnailCard: View {
                         }
                 }
             }
-            .frame(height: photoHeight)
-            .clipShape(RoundedRectangle(cornerRadius: innerCornerRadius))
+            .frame(height: metrics.photoHeight)
+            .clipShape(RoundedRectangle(cornerRadius: metrics.innerCornerRadius))
             .overlay(alignment: .topTrailing) {
-                CountdownBadge(text: badgeText, tone: badgeTone)
-                    .padding(.trailing, 10)
-                    .padding(.top, 10)
-                    .allowsHitTesting(false)
+                if showsBadge {
+                    CountdownBadge(text: badgeText, tone: badgeTone)
+                        .padding(.trailing, metrics.badgeTrailingInset)
+                        .padding(.top, metrics.badgeTopInset)
+                        .allowsHitTesting(false)
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 if let noteText {
                     Text(noteText)
-                        .font(.custom("Noteworthy-Bold", size: 14))
+                        .font(.custom("Noteworthy-Bold", size: metrics.noteFontSize))
                         .foregroundStyle(Color.black.opacity(0.76))
-                        .lineLimit(2)
+                        .lineLimit(style == .thumbnail ? 2 : nil)
                         .multilineTextAlignment(.leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 Text(dateText)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                    .font(.system(size: metrics.dateFontSize, weight: .medium, design: .rounded))
                     .foregroundStyle(Color.black.opacity(0.45))
                     .textCase(.uppercase)
                     .tracking(0.6)
             }
-            .frame(maxWidth: .infinity, minHeight: footerMinHeight, alignment: .topLeading)
-            .padding(.top, noteText == nil ? 8 : 10)
-            .padding(.bottom, noteText == nil ? 8 : 10)
-            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: footerMinHeight(for: metrics), alignment: .topLeading)
+            .padding(.top, noteText == nil ? metrics.topFooterPaddingWithoutNote : metrics.topFooterPaddingWithNote)
+            .padding(.bottom, metrics.bottomFooterPadding)
+            .padding(.horizontal, metrics.horizontalFooterPadding)
             .background(Color.white)
         }
-        .padding(10)
+        .padding(metrics.outerPadding)
         .frame(minWidth: 0, maxWidth: .infinity)
         .background(
             LinearGradient(
@@ -75,14 +154,14 @@ struct MemoryThumbnailCard: View {
                 endPoint: .bottom
             )
         )
-        .clipShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: metrics.outerCornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: outerCornerRadius)
+            RoundedRectangle(cornerRadius: metrics.outerCornerRadius)
                 .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.16), radius: 16, y: 9)
+        .shadow(color: .black.opacity(0.16), radius: style == .thumbnail ? 16 : 20, y: style == .thumbnail ? 9 : 10)
         .rotationEffect(.degrees(rotationAngle))
-        .contentShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: metrics.outerCornerRadius))
     }
 
     private var noteText: String? {
@@ -96,8 +175,8 @@ struct MemoryThumbnailCard: View {
         createdAt.formatted(date: .abbreviated, time: .omitted)
     }
 
-    private var footerMinHeight: CGFloat {
-        noteText == nil ? footerMinHeightWithoutNote : footerMinHeightWithNote
+    private func footerMinHeight(for metrics: Metrics) -> CGFloat {
+        noteText == nil ? metrics.footerMinHeightWithoutNote : metrics.footerMinHeightWithNote
     }
 
     private var rotationAngle: Double {
@@ -106,21 +185,46 @@ struct MemoryThumbnailCard: View {
     }
 }
 
+struct MemoryThumbnailCard: View {
+    let thumbnail: UIImage?
+    let note: String?
+    let createdAt: Date
+    let badgeText: String
+    let badgeTone: ExpirationService.LibraryBadgeTone
+
+    var body: some View {
+        MemoryPolaroidCard(
+            image: thumbnail,
+            note: note,
+            createdAt: createdAt,
+            badgeText: badgeText,
+            badgeTone: badgeTone,
+            style: .thumbnail
+        )
+    }
+}
+
 struct CountdownBadge: View {
+    enum Style {
+        case standard
+        case prominent
+    }
+
     let text: String
     let tone: ExpirationService.LibraryBadgeTone
+    var style: Style = .standard
 
     var body: some View {
         HStack(spacing: 0) {
             Text(text)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .font(.system(size: fontSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.9)
                 .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
+        .padding(.horizontal, horizontalPadding)
+        .padding(.vertical, verticalPadding)
         .background(
             .ultraThinMaterial,
             in: Capsule()
@@ -134,6 +238,18 @@ struct CountdownBadge: View {
                 .strokeBorder(borderColor, lineWidth: 0.8)
         )
         .shadow(color: shadowColor, radius: 8, y: 3)
+    }
+
+    private var fontSize: CGFloat {
+        style == .prominent ? 12 : 10
+    }
+
+    private var horizontalPadding: CGFloat {
+        style == .prominent ? 12 : 9
+    }
+
+    private var verticalPadding: CGFloat {
+        style == .prominent ? 7 : 5
     }
 
     private var tintColor: Color {

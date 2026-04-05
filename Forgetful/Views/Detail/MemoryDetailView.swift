@@ -7,6 +7,7 @@ struct MemoryDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var appManager: AppManager
     @Query(sort: \FolderEntity.sortOrder) private var folders: [FolderEntity]
+    @FocusState private var isNoteFocused: Bool
 
     let item: MemoryItem
 
@@ -15,7 +16,7 @@ struct MemoryDetailView: View {
     @State private var isShowingFolderPicker = false
     @State private var isShowingDeleteConfirmation = false
     @State private var isShowingImageViewer = false
-    @State private var isShowingNoteEditor = false
+    @State private var isEditingNote = false
     @State private var noteDraft = ""
     @State private var shareURL: URL?
     @State private var shareErrorMessage: String?
@@ -23,71 +24,111 @@ struct MemoryDetailView: View {
 
     private let expirationService = ExpirationService()
     private let photosExportService = PhotosExportService()
+    private var renderService: MementoRenderService {
+        MementoRenderService(expirationService: expirationService)
+    }
     private let noteMaxLength = 140
 
     var body: some View {
         let memoryService = MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
+        let originalImage = appManager.assetStore.loadOriginal(filename: item.imageFilename)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                MemoryHeroImage(
-                    image: appManager.assetStore.loadOriginal(filename: item.imageFilename),
-                    onTap: {
+                EditableMemoryPolaroid(
+                    image: originalImage,
+                    note: $noteDraft,
+                    isFocused: $isNoteFocused,
+                    createdAt: item.createdAt,
+                    createdDateText: mementoDateText,
+                    maxLength: noteMaxLength,
+                    onTapImage: {
                         isShowingImageViewer = true
                     }
                 )
 
                 MemoryMetaCard(
                     item: item,
-                    expirationDetailText: expirationDetailText,
                     folderName: folderName,
-                    createdDateText: createdDateText,
-                    onEditNote: openNoteEditor
+                    createdDateText: createdDateText
                 )
             }
             .padding(20)
         }
         .background(Color(.systemGroupedBackground))
+        .navigationBarBackButtonHidden(isEditingNote)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        sharePhoto()
-                    } label: {
-                        Label("Share Memento", systemImage: "square.and.arrow.up")
-                    }
+            ToolbarItem(placement: .principal) {
+                CountdownBadge(text: detailExpirationBadgeText, tone: expirationBadgeTone, style: .prominent)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Expires \(expirationDetailText)")
+            }
 
-                    Button {
-                        exportToPhotos(memoryService: memoryService)
-                    } label: {
-                        Label(isExporting ? "Saving to Photos..." : (item.wasExportedToPhotos ? "Save to Photos Again" : "Save to Photos"), systemImage: item.wasExportedToPhotos ? "checkmark.circle.fill" : "square.and.arrow.down")
+            ToolbarItem(placement: .topBarLeading) {
+                if isEditingNote {
+                    Button("Cancel") {
+                        cancelNoteEditing()
                     }
-                    .disabled(isExporting)
-
-                    Button {
-                        isShowingFolderPicker = true
-                    } label: {
-                        Label("Move to Folder", systemImage: "folder")
-                    }
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        isShowingDeleteConfirmation = true
-                    } label: {
-                        HStack {
-                            Text("Delete Memento")
-                            Spacer()
-                            Image(uiImage: tintedDeleteMemoryIcon)
-                        }
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal")
-                        .font(.headline.weight(.semibold))
-                        .frame(width: 32, height: 32)
                 }
-                .accessibilityLabel("Memory actions")
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                if isEditingNote {
+                    Button("Save") {
+                        saveNote(memoryService: memoryService)
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(!isSavingNote)
+                } else {
+                    Menu {
+                        Section {
+                            Button {
+                                sharePhoto()
+                            } label: {
+                                Label("Share Memento", systemImage: "square.and.arrow.up")
+                            }
+
+                            Button {
+                                exportToPhotos(memoryService: memoryService)
+                            } label: {
+                                Label(isExporting ? "Saving to Photos..." : (item.wasExportedToPhotos ? "Save to Photos Again" : "Save to Photos"), systemImage: item.wasExportedToPhotos ? "checkmark.circle.fill" : "square.and.arrow.down")
+                            }
+                            .disabled(isExporting)
+                        }
+
+                        Section {
+                            Button {
+                                beginNoteEditing()
+                            } label: {
+                                Label("Edit Note", systemImage: "square.and.pencil")
+                            }
+
+                            Button {
+                                isShowingFolderPicker = true
+                            } label: {
+                                Label("Move to Folder", systemImage: "folder")
+                            }
+                        }
+
+                        Section {
+                            Button(role: .destructive) {
+                                isShowingDeleteConfirmation = true
+                            } label: {
+                                HStack {
+                                    Text("Delete Memento")
+                                    Spacer()
+                                    Image(uiImage: tintedDeleteMemoryIcon)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.headline.weight(.semibold))
+                            .frame(width: 32, height: 32)
+                    }
+                    .accessibilityLabel("Memory actions")
+                }
             }
         }
         .alert("Save to Photos", isPresented: Binding(
@@ -149,25 +190,8 @@ struct MemoryDetailView: View {
                 )
             }
         }
-        .sheet(isPresented: $isShowingNoteEditor) {
-            NavigationStack {
-                NoteEditorSheet(
-                    note: $noteDraft,
-                    maxLength: noteMaxLength,
-                    hasExistingNote: noteText != nil,
-                    onSave: {
-                        do {
-                            try memoryService.updateNote(item, note: noteDraft)
-                            isShowingNoteEditor = false
-                        } catch {
-                            mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This note couldn't be updated. Try again."
-                        }
-                    }
-                )
-            }
-        }
         .fullScreenCover(isPresented: $isShowingImageViewer) {
-            if let image = appManager.assetStore.loadOriginal(filename: item.imageFilename) {
+            if let image = originalImage {
                 FullScreenMemoryImageViewer(image: image)
             }
         }
@@ -175,6 +199,17 @@ struct MemoryDetailView: View {
             ActivityViewController(activityItems: [url]) {
                 cleanupSharedFile()
             }
+        }
+        .onAppear {
+            noteDraft = item.note ?? ""
+        }
+        .onChange(of: noteDraft) { _, newValue in
+            if newValue.count > noteMaxLength {
+                noteDraft = String(newValue.prefix(noteMaxLength))
+            }
+        }
+        .onChange(of: isNoteFocused) { _, isFocused in
+            isEditingNote = isFocused
         }
     }
 
@@ -189,21 +224,42 @@ struct MemoryDetailView: View {
         item.createdAt.formatted(date: .abbreviated, time: .shortened)
     }
 
+    private var mementoDateText: String {
+        item.createdAt.formatted(date: .abbreviated, time: .omitted)
+    }
+
     private var expirationDetailText: String {
         if item.keepForever || item.expiresAt == .distantFuture {
             return "No expiration"
         }
+        return item.expiresAt.formatted(.dateTime.weekday(.abbreviated).hour().minute())
+    }
 
-        let calendar = Calendar.current
-        if calendar.isDateInToday(item.expiresAt) {
-            return "Today at \(item.expiresAt.formatted(date: .omitted, time: .shortened))"
+    private var expirationBadgeText: String {
+        expirationService.libraryBadgeText(for: item)
+    }
+
+    private var detailExpirationBadgeText: String {
+        guard item.expiresAt > .now, !item.keepForever, item.expiresAt != .distantFuture else {
+            return expirationBadgeText
         }
+        return "\(expirationBadgeText) - \(expirationDetailText)"
+    }
 
-        if calendar.isDateInTomorrow(item.expiresAt) {
-            return "Tomorrow at \(item.expiresAt.formatted(date: .omitted, time: .shortened))"
-        }
+    private var expirationBadgeTone: ExpirationService.LibraryBadgeTone {
+        expirationService.libraryBadgeTone(for: item)
+    }
 
-        return item.expiresAt.formatted(date: .abbreviated, time: .shortened)
+    private var isSavingNote: Bool {
+        normalizedDraftNote != normalizedItemNote
+    }
+
+    private var normalizedDraftNote: String? {
+        noteDraft.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+    }
+
+    private var normalizedItemNote: String? {
+        item.note?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
     private func exportToPhotos(memoryService: MemoryService) {
@@ -213,13 +269,16 @@ struct MemoryDetailView: View {
         Task {
             defer { isExporting = false }
 
-            guard let image = appManager.assetStore.loadOriginal(filename: item.imageFilename) else {
+            guard
+                let image = appManager.assetStore.loadOriginal(filename: item.imageFilename),
+                let renderedImage = renderService.renderImage(for: item, image: image)
+            else {
                 exportMessage = PhotosExportError.assetMissing.localizedDescription
                 return
             }
 
             do {
-                try await photosExportService.export(image: image)
+                try await photosExportService.export(image: renderedImage)
                 do {
                     try memoryService.markExportedToPhotos(item)
                     exportMessage = "Saved to Photos. This memento will still expire in Forgetful on schedule."
@@ -233,21 +292,23 @@ struct MemoryDetailView: View {
     }
 
     private func sharePhoto() {
-        let fileURL = appManager.assetStore.originalFileURL(filename: item.imageFilename)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            shareErrorMessage = "The original image could not be loaded."
+        guard
+            let image = appManager.assetStore.loadOriginal(filename: item.imageFilename),
+            let renderedImage = renderService.renderImage(for: item, image: image)
+        else {
+            shareErrorMessage = "The memento could not be rendered."
             return
         }
 
         do {
-            let sharedURL = try prepareShareURL(from: fileURL)
+            let sharedURL = try prepareShareURL(from: renderedImage)
             shareURL = sharedURL
         } catch {
-            shareErrorMessage = "This photo couldn't be prepared for sharing."
+            shareErrorMessage = "This memento couldn't be prepared for sharing."
         }
     }
 
-    private func prepareShareURL(from originalURL: URL) throws -> URL {
+    private func prepareShareURL(from renderedImage: UIImage) throws -> URL {
         let fileManager = FileManager.default
         let shareDirectory = fileManager.temporaryDirectory.appendingPathComponent("ForgetfulShares", isDirectory: true)
 
@@ -261,7 +322,11 @@ struct MemoryDetailView: View {
             try? fileManager.removeItem(at: destinationURL)
         }
 
-        try fileManager.copyItem(at: originalURL, to: destinationURL)
+        guard let data = renderedImage.jpegData(compressionQuality: 0.92) else {
+            throw AssetStoreError.encodingFailed
+        }
+
+        try data.write(to: destinationURL, options: .atomic)
         return destinationURL
     }
 
@@ -271,16 +336,37 @@ struct MemoryDetailView: View {
         self.shareURL = nil
     }
 
-    private func openNoteEditor() {
-        noteDraft = item.note ?? ""
-        isShowingNoteEditor = true
+    private func saveNote(memoryService: MemoryService) {
+        guard isSavingNote else {
+            endNoteEditing(resetDraft: false)
+            return
+        }
+
+        do {
+            try memoryService.updateNote(item, note: noteDraft)
+            endNoteEditing(resetDraft: false)
+        } catch {
+            mutationErrorMessage = (error as? LocalizedError)?.errorDescription ?? "This note couldn't be updated. Try again."
+        }
     }
 
-    private var noteText: String? {
-        guard let note = item.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
-            return nil
+    private func cancelNoteEditing() {
+        endNoteEditing(resetDraft: true)
+    }
+
+    private func beginNoteEditing() {
+        isEditingNote = true
+        isNoteFocused = true
+    }
+
+    private func endNoteEditing(resetDraft: Bool) {
+        if resetDraft {
+            noteDraft = item.note ?? ""
+        } else {
+            noteDraft = item.note ?? noteDraft
         }
-        return note
+        isEditingNote = false
+        isNoteFocused = false
     }
 }
 
@@ -309,34 +395,110 @@ private var tintedDeleteMemoryIcon: UIImage {
         .withTintColor(.systemRed, renderingMode: .alwaysOriginal) ?? UIImage()
 }
 
-private struct MemoryHeroImage: View {
+private struct EditableMemoryPolaroid: View {
     let image: UIImage?
-    let onTap: () -> Void
+    @Binding var note: String
+    @FocusState.Binding var isFocused: Bool
+    let createdAt: Date
+    let createdDateText: String
+    let maxLength: Int
+    let onTapImage: () -> Void
+
+    private let photoHeight: CGFloat = 356
+    private let footerMinHeightWithNote: CGFloat = 108
+    private let footerMinHeightWithoutNote: CGFloat = 84
+    private let outerCornerRadius: CGFloat = 16
+    private let innerCornerRadius: CGFloat = 6
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .onTapGesture(perform: onTap)
-            } else {
-                RoundedRectangle(cornerRadius: 28)
-                    .fill(.secondary.opacity(0.12))
-                    .frame(height: 280)
-                    .overlay {
-                        Image(systemName: "photo")
-                            .font(.title.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .onTapGesture(perform: onTapImage)
+                } else {
+                    Rectangle()
+                        .fill(Color(red: 0.87, green: 0.86, blue: 0.82))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .font(.title2)
+                                .foregroundStyle(.secondary)
+                        }
+                }
             }
+            .frame(height: photoHeight)
+            .clipShape(RoundedRectangle(cornerRadius: innerCornerRadius))
+
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("", text: $note, axis: .vertical)
+                    .focused($isFocused)
+                    .textFieldStyle(.plain)
+                    .font(.custom("Noteworthy-Bold", size: 20))
+                    .foregroundStyle(Color.black.opacity(0.76))
+                    .tint(Color.black.opacity(0.72))
+                    .lineLimit(1...4)
+                    .overlay(alignment: .topLeading) {
+                        if note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text("Note here... (optional)")
+                                .font(.custom("Noteworthy-Bold", size: 20))
+                                .foregroundStyle(Color.black.opacity(0.34))
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                HStack(alignment: .center) {
+                    Text(createdDateText)
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(Color.black.opacity(0.45))
+                        .textCase(.uppercase)
+                        .tracking(0.6)
+
+                    Spacer()
+
+                    if isFocused && !note.isEmpty {
+                        Text("\(note.count)/\(maxLength)")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(note.count >= maxLength ? .orange : Color.black.opacity(0.35))
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: footerMinHeight, alignment: .topLeading)
+            .padding(.top, note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 12 : 14)
+            .padding(.bottom, 14)
+            .padding(.horizontal, 16)
+            .background(Color.white)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 28))
-        .overlay(
-            RoundedRectangle(cornerRadius: 28)
-                .strokeBorder(.white.opacity(0.18), lineWidth: 1)
+        .padding(14)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.98, green: 0.97, blue: 0.94),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
         )
-        .contentShape(RoundedRectangle(cornerRadius: 28))
+        .clipShape(RoundedRectangle(cornerRadius: outerCornerRadius))
+        .overlay(
+            RoundedRectangle(cornerRadius: outerCornerRadius)
+                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 20, y: 10)
+        .rotationEffect(.degrees(rotationAngle))
+    }
+
+    private var footerMinHeight: CGFloat {
+        note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? footerMinHeightWithoutNote : footerMinHeightWithNote
+    }
+
+    private var rotationAngle: Double {
+        let seed = createdAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 3)
+        return (seed - 1.5) * 0.9
     }
 }
 
@@ -480,10 +642,8 @@ private struct FullScreenMemoryImageViewer: View {
 
 private struct MemoryMetaCard: View {
     let item: MemoryItem
-    let expirationDetailText: String
     let folderName: String
     let createdDateText: String
-    let onEditNote: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -493,44 +653,13 @@ private struct MemoryMetaCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            metadataSection(title: "Time") {
+            VStack(spacing: 12) {
                 metadataRow(
                     title: "Date Taken",
                     value: createdDateText,
                     symbol: "calendar",
                     valueFont: .subheadline.weight(.semibold)
                 )
-                metadataRow(
-                    title: "Expires",
-                    value: expirationDetailText,
-                    symbol: "hourglass",
-                    valueFont: .subheadline.weight(.semibold)
-                )
-            }
-
-            Divider()
-                .overlay(.quaternary.opacity(0.7))
-
-            metadataSection(
-                title: "Context",
-                trailing: {
-                    Button(action: onEditNote) {
-                        HStack(spacing: 6) {
-                            Image(systemName: noteText == nil ? "plus.circle.fill" : "square.and.pencil")
-                                .font(.caption.weight(.semibold))
-
-                            Text(noteText == nil ? "Add Note" : "Edit Note")
-                                .font(.caption.weight(.semibold))
-                        }
-                        .foregroundStyle(.blue)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            ) {
-                if let noteText {
-                    metadataRow(title: "Note", value: noteText, symbol: "note.text")
-                }
                 metadataRow(title: "Folder", value: folderName, symbol: "folder")
             }
         }
@@ -541,28 +670,6 @@ private struct MemoryMetaCard: View {
             RoundedRectangle(cornerRadius: 24)
                 .strokeBorder(.quaternary.opacity(0.8), lineWidth: 1)
         )
-    }
-
-    private func metadataSection<Content: View, Trailing: View>(
-        title: String,
-        @ViewBuilder trailing: () -> Trailing = { EmptyView() },
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title.uppercased())
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                trailing()
-            }
-
-            VStack(spacing: 12) {
-                content()
-            }
-        }
     }
 
     private func metadataRow(title: String, value: String, symbol: String, valueFont: Font = .subheadline.weight(.medium)) -> some View {
@@ -586,81 +693,6 @@ private struct MemoryMetaCard: View {
         }
     }
 
-    private var noteText: String? {
-        guard let note = item.note?.trimmingCharacters(in: .whitespacesAndNewlines), !note.isEmpty else {
-            return nil
-        }
-        return note
-    }
-}
-
-private struct NoteEditorSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @FocusState private var isNoteFocused: Bool
-
-    @Binding var note: String
-    let maxLength: Int
-    let hasExistingNote: Bool
-    let onSave: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            TextEditor(text: $note)
-                .focused($isNoteFocused)
-                .scrollContentBackground(.hidden)
-                .padding(12)
-                .frame(minHeight: 180, alignment: .topLeading)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .strokeBorder(.quaternary.opacity(0.9), lineWidth: 1)
-                )
-                .overlay(alignment: .topLeading) {
-                    if note.isEmpty {
-                        Text("Add a note")
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 20)
-                            .allowsHitTesting(false)
-                    }
-                }
-
-            HStack {
-                Spacer()
-
-                Text("\(note.count)/\(maxLength)")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(note.count >= maxLength ? .orange : .secondary)
-                    .monospacedDigit()
-            }
-
-            Spacer()
-        }
-        .padding(20)
-        .navigationTitle(hasExistingNote ? "Edit Note" : "Add Note")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
-
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Save") {
-                    onSave()
-                }
-            }
-        }
-        .onChange(of: note) { _, newValue in
-            if newValue.count > maxLength {
-                note = String(newValue.prefix(maxLength))
-            }
-        }
-        .onAppear {
-            isNoteFocused = true
-        }
-    }
 }
 
 private struct FolderPickerSheet: View {

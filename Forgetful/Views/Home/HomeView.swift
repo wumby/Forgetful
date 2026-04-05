@@ -192,9 +192,16 @@ private struct MementosHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Forgetful")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                HStack(alignment: .center, spacing: 10) {
+                    Image("Forgetful Icon")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 38, height: 38)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Forgetful")
+                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                    }
                 }
 
                 Spacer(minLength: 12)
