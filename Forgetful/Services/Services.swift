@@ -1,6 +1,7 @@
 import Foundation
 import Photos
 import SwiftData
+import SwiftUI
 import UIKit
 
 struct ExpirationService {
@@ -117,6 +118,31 @@ struct PhotosExportService {
                 }
             }
         }
+    }
+}
+
+@MainActor
+struct MementoRenderService {
+    let expirationService: ExpirationService
+
+    func renderImage(for item: MemoryItem, image: UIImage) -> UIImage? {
+        let content = MemoryPolaroidCard(
+            image: image,
+            note: item.note,
+            createdAt: item.createdAt,
+            badgeText: expirationService.libraryBadgeText(for: item),
+            badgeTone: expirationService.libraryBadgeTone(for: item),
+            style: .export,
+            showsBadge: false
+        )
+        .frame(width: 1320)
+        .padding(28)
+        .background(Color.clear)
+
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = 1
+        renderer.proposedSize = ProposedViewSize(width: 1376, height: nil)
+        return renderer.uiImage
     }
 }
 
