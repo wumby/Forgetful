@@ -31,12 +31,12 @@ struct MemoryDetailView: View {
 
     var body: some View {
         let memoryService = MemoryService(context: modelContext, assetStore: appManager.assetStore, expirationService: expirationService)
-        let originalImage = appManager.assetStore.loadOriginal(filename: item.imageFilename)
+        let displayImage = appManager.assetStore.loadDisplayImage(filename: item.imageFilename)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 EditableMemoryPolaroid(
-                    image: originalImage,
+                    image: displayImage,
                     note: $noteDraft,
                     isFocused: $isNoteFocused,
                     createdAt: item.createdAt,
@@ -191,7 +191,7 @@ struct MemoryDetailView: View {
             }
         }
         .fullScreenCover(isPresented: $isShowingImageViewer) {
-            if let image = originalImage {
+            if let image = displayImage {
                 FullScreenMemoryImageViewer(image: image)
             }
         }
@@ -696,42 +696,41 @@ private struct MemoryMetaCard: View {
 }
 
 private struct FolderPickerSheet: View {
-    @Environment(\.dismiss) private var dismiss
-
     let folders: [FolderEntity]
     let selectedFolderID: UUID?
     let onSelect: (UUID?) -> Void
 
     var body: some View {
-        List {
-            folderButton(
-                title: "No Folder",
-                subtitle: "Keep this memory outside folders",
-                symbol: "tray",
-                tint: .secondary,
-                folderID: nil
-            )
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Color.secondary.opacity(0.35))
+                .frame(width: 38, height: 5)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
 
-            ForEach(folders, id: \.id) { folder in
+            List {
                 folderButton(
-                    title: folder.name,
-                    subtitle: "Move into \(folder.name)",
-                    symbol: folder.iconName ?? "folder",
-                    tint: Color(folderColorName: folder.colorName),
-                    folderID: folder.id
+                    title: "No Folder",
+                    subtitle: "Keep this memory outside folders",
+                    symbol: "tray",
+                    tint: .secondary,
+                    folderID: nil
                 )
-            }
-        }
-        .listStyle(.plain)
-        .navigationTitle("Move to Folder")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") {
-                    dismiss()
+
+                ForEach(folders, id: \.id) { folder in
+                    folderButton(
+                        title: folder.name,
+                        subtitle: "Move into \(folder.name)",
+                        symbol: folder.iconName ?? "folder",
+                        tint: Color(folderColorName: folder.colorName),
+                        folderID: folder.id
+                    )
                 }
             }
+            .listStyle(.plain)
         }
+        .navigationTitle("Move to Folder")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     private func folderButton(title: String, subtitle: String, symbol: String, tint: Color, folderID: UUID?) -> some View {

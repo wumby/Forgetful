@@ -184,6 +184,7 @@ struct FolderService {
         } else if existingFolders.isEmpty {
             let defaults: [(name: String, color: String, icon: String)] = [
                 ("Home", "blue", "house"),
+                ("People", "pink", "person.2"),
                 ("Travel", "teal", "airplane"),
                 ("Info", "orange", "info.circle")
             ]

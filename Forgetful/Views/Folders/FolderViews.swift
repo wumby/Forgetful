@@ -206,6 +206,7 @@ struct FolderEditorSheet: View {
         "tag",
         "bookmark",
         "tray",
+        "person.2",
         "house",
         "car",
         "cart",
