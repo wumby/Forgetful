@@ -9,6 +9,7 @@ struct FolderDetailView: View {
 
     @State private var isShowingCamera = false
     @State private var captureSession: CapturedImageSession?
+    @State private var captureErrorMessage: String?
     @State private var selectedSort: MemorySort = .newestFirst
 
     private let expirationService = ExpirationService()
@@ -88,7 +89,7 @@ struct FolderDetailView: View {
 
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    isShowingCamera = true
+                    openCapture()
                 } label: {
                     Image(systemName: "camera")
                 }
@@ -109,6 +110,16 @@ struct FolderDetailView: View {
                 )
             }
         }
+        .alert("Capture Unavailable", isPresented: Binding(
+            get: { captureErrorMessage != nil },
+            set: { if !$0 { captureErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                captureErrorMessage = nil
+            }
+        } message: {
+            Text(captureErrorMessage ?? "")
+        }
     }
 
     private var itemCountText: String {
@@ -117,6 +128,15 @@ struct FolderDetailView: View {
 
     private func handleCaptureFlowDismiss() {
         captureSession = nil
+    }
+
+    private func openCapture() {
+        guard CameraCaptureView.preferredSourceType != nil else {
+            captureErrorMessage = "Camera capture isn't available, and this device can't open the photo library right now."
+            return
+        }
+
+        isShowingCamera = true
     }
 
     private var sortLabel: String {

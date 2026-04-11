@@ -7,6 +7,23 @@ struct MemoryPolaroidCard: View {
         case detail
         case export
 
+        private static let detailBaseMetrics = Metrics(
+            photoHeight: 356,
+            footerMinHeightWithNote: 84,
+            footerMinHeightWithoutNote: 58,
+            outerCornerRadius: 16,
+            innerCornerRadius: 6,
+            outerPadding: 14,
+            horizontalFooterPadding: 16,
+            topFooterPaddingWithNote: 14,
+            topFooterPaddingWithoutNote: 12,
+            bottomFooterPadding: 14,
+            noteFontSize: 20,
+            dateFontSize: 14,
+            badgeTopInset: 14,
+            badgeTrailingInset: 14
+        )
+
         var metrics: Metrics {
             switch self {
             case .thumbnail:
@@ -27,39 +44,9 @@ struct MemoryPolaroidCard: View {
                     badgeTrailingInset: 10
                 )
             case .detail:
-                Metrics(
-                    photoHeight: 356,
-                    footerMinHeightWithNote: 84,
-                    footerMinHeightWithoutNote: 58,
-                    outerCornerRadius: 16,
-                    innerCornerRadius: 6,
-                    outerPadding: 14,
-                    horizontalFooterPadding: 16,
-                    topFooterPaddingWithNote: 14,
-                    topFooterPaddingWithoutNote: 12,
-                    bottomFooterPadding: 14,
-                    noteFontSize: 20,
-                    dateFontSize: 14,
-                    badgeTopInset: 14,
-                    badgeTrailingInset: 14
-                )
+                Self.detailBaseMetrics
             case .export:
-                Metrics(
-                    photoHeight: 1180,
-                    footerMinHeightWithNote: 220,
-                    footerMinHeightWithoutNote: 156,
-                    outerCornerRadius: 28,
-                    innerCornerRadius: 10,
-                    outerPadding: 24,
-                    horizontalFooterPadding: 28,
-                    topFooterPaddingWithNote: 24,
-                    topFooterPaddingWithoutNote: 20,
-                    bottomFooterPadding: 24,
-                    noteFontSize: 54,
-                    dateFontSize: 30,
-                    badgeTopInset: 26,
-                    badgeTrailingInset: 26
-                )
+                Metrics.scaledForExport(from: Self.detailBaseMetrics, photoHeight: 1180)
             }
         }
     }
@@ -79,6 +66,27 @@ struct MemoryPolaroidCard: View {
         let dateFontSize: CGFloat
         let badgeTopInset: CGFloat
         let badgeTrailingInset: CGFloat
+
+        static func scaledForExport(from base: Metrics, photoHeight: CGFloat) -> Metrics {
+            let scale = photoHeight / base.photoHeight
+
+            return Metrics(
+                photoHeight: photoHeight,
+                footerMinHeightWithNote: base.footerMinHeightWithNote * scale,
+                footerMinHeightWithoutNote: base.footerMinHeightWithoutNote * scale,
+                outerCornerRadius: base.outerCornerRadius * scale,
+                innerCornerRadius: base.innerCornerRadius * scale,
+                outerPadding: base.outerPadding * scale,
+                horizontalFooterPadding: base.horizontalFooterPadding * scale,
+                topFooterPaddingWithNote: base.topFooterPaddingWithNote * scale,
+                topFooterPaddingWithoutNote: base.topFooterPaddingWithoutNote * scale,
+                bottomFooterPadding: base.bottomFooterPadding * scale,
+                noteFontSize: base.noteFontSize * scale,
+                dateFontSize: base.dateFontSize * scale,
+                badgeTopInset: base.badgeTopInset * scale,
+                badgeTrailingInset: base.badgeTrailingInset * scale
+            )
+        }
     }
 
     let image: UIImage?

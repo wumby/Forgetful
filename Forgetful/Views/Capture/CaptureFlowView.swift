@@ -187,10 +187,10 @@ struct CaptureFlowView: View {
     @ViewBuilder
     private var fallbackNotice: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Testing Mode")
+            Text("Photo Library")
                 .font(.headline)
 
-            Text("Camera capture isn't available here, so Forgetful is using your photo library instead.")
+            Text("Camera capture isn't available on this device, so Forgetful is using your photo library instead.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
