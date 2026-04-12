@@ -123,6 +123,8 @@ struct PhotosExportService {
 
 @MainActor
 struct MementoRenderService {
+    private static let exportBackgroundColor = Color(.sRGB, red: 1, green: 1, blue: 1, opacity: 1)
+
     let expirationService: ExpirationService
 
     func renderImage(for item: MemoryItem, image: UIImage) -> UIImage? {
@@ -137,9 +139,10 @@ struct MementoRenderService {
         )
         .frame(width: 1320)
         .padding(28)
-        .background(Color.clear)
+        .background(Self.exportBackgroundColor)
 
         let renderer = ImageRenderer(content: content)
+        renderer.isOpaque = true
         renderer.scale = 1
         renderer.proposedSize = ProposedViewSize(width: 1376, height: nil)
         return renderer.uiImage

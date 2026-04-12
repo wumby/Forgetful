@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 
 struct MemoryPolaroidCard: View {
+    private static let paperColor = Color(.sRGB, red: 1, green: 1, blue: 1, opacity: 1)
+
     enum Style {
         case thumbnail
         case detail
@@ -148,26 +150,21 @@ struct MemoryPolaroidCard: View {
             .padding(.top, noteText == nil ? metrics.topFooterPaddingWithoutNote : metrics.topFooterPaddingWithNote)
             .padding(.bottom, metrics.bottomFooterPadding)
             .padding(.horizontal, metrics.horizontalFooterPadding)
-            .background(Color.white)
+            .background(Self.paperColor)
         }
         .padding(metrics.outerPadding)
         .frame(minWidth: 0, maxWidth: .infinity)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.98, green: 0.97, blue: 0.94),
-                    Color.white
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: metrics.outerCornerRadius))
         .overlay(
             RoundedRectangle(cornerRadius: metrics.outerCornerRadius)
-                .strokeBorder(Color.black.opacity(0.06), lineWidth: 1)
+                .strokeBorder(cardBorderColor, lineWidth: style == .export ? 0 : 1)
         )
-        .shadow(color: .black.opacity(0.16), radius: style == .thumbnail ? 16 : 20, y: style == .thumbnail ? 9 : 10)
+        .shadow(
+            color: cardShadowColor,
+            radius: style == .thumbnail ? 16 : 20,
+            y: style == .thumbnail ? 9 : 10
+        )
         .rotationEffect(.degrees(rotationAngle))
         .contentShape(RoundedRectangle(cornerRadius: metrics.outerCornerRadius))
     }
@@ -187,7 +184,36 @@ struct MemoryPolaroidCard: View {
         noteText == nil ? metrics.footerMinHeightWithoutNote : metrics.footerMinHeightWithNote
     }
 
+    private var cardBackground: some ShapeStyle {
+        if style == .export {
+            return AnyShapeStyle(Self.paperColor)
+        }
+
+        return AnyShapeStyle(
+            LinearGradient(
+                colors: [
+                    Color(red: 0.98, green: 0.97, blue: 0.94),
+                    Color.white
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private var cardBorderColor: Color {
+        style == .export ? .clear : Color.black.opacity(0.06)
+    }
+
+    private var cardShadowColor: Color {
+        style == .export ? .clear : .black.opacity(0.16)
+    }
+
     private var rotationAngle: Double {
+        if style == .export {
+            return 0
+        }
+
         let seed = createdAt.timeIntervalSince1970.truncatingRemainder(dividingBy: 3)
         return (seed - 1.5) * 0.9
     }

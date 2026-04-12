@@ -323,7 +323,9 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = YS4W3Q38H5;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
@@ -345,7 +347,9 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = YS4W3Q38H5;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Forgetful uses the camera to capture temporary memories.";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Forgetful saves important memories to your Photos library when you ask.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Forgetful can use your photo library when camera capture is unavailable and you choose an existing photo.";
